@@ -33,6 +33,7 @@ pub struct App {
     entry: Option<Entry>,
     instance: Option<Instance>,
     device: Option<ash::Device>,
+    graphics_queue: Option<vk::Queue>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -43,6 +44,7 @@ impl App {
             entry: None,
             instance: None,
             device: None,
+            graphics_queue: None,
             debug_utils_loader: None,
             debug_callback: None,
         }
@@ -315,12 +317,12 @@ impl App {
         };
         self.device = Some(device.expect("Error while creating logical device."));
 
-        let graphics_queue = unsafe {
+        self.graphics_queue = Some(unsafe {
             self.device
                 .as_ref()
                 .unwrap()
                 .get_device_queue(indices.graphics_family.unwrap(), 0)
-        };
+        });
     }
 
     fn init_vulkan(&mut self, window: &Window) {

@@ -3,6 +3,6 @@ pub mod utils;
 use app::*;
 
 fn main() {
-    let mut app = App::new();
+    let app = App::new();
     app.run();
 }
