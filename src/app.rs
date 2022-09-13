@@ -158,10 +158,8 @@ impl App {
         }
     }
 
-    fn init_vulkan(&mut self, window: &Window) {
-        self.entry = Some(Entry::linked());
-        self.instance = Some(Self::create_instance(self.entry.as_ref().unwrap(), window));
-
+    fn init_debug_messenger(&mut self)
+    {
         if !VALIDATION_LAYERS_ENABLED {
             return;
         }
@@ -198,6 +196,12 @@ impl App {
                     .unwrap(),
             )
         };
+    }
+
+    fn init_vulkan(&mut self, window: &Window) {
+        self.entry = Some(Entry::linked());
+        self.instance = Some(Self::create_instance(self.entry.as_ref().unwrap(), window));
+        self.init_debug_messenger();
     }
 
     fn render() {}
