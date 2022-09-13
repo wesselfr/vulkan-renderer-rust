@@ -23,6 +23,10 @@ const VALIDATION_LAYERS_ENABLED: bool = true;
 #[cfg(not(debug_assertions))]
 const VALIDATION_LAYERS_ENABLED: bool = false;
 
+struct QueueFamiliyIndices {
+    graphics_family: Option<u32>,
+}
+
 pub struct App {
     entry: Option<Entry>,
     instance: Option<Instance>,
@@ -158,8 +162,7 @@ impl App {
         }
     }
 
-    fn init_debug_messenger(&mut self)
-    {
+    fn init_debug_messenger(&mut self) {
         if !VALIDATION_LAYERS_ENABLED {
             return;
         }
@@ -198,10 +201,73 @@ impl App {
         };
     }
 
+    fn get_physical_device(&mut self) -> Option<vk::PhysicalDevice> {
+        let devices = unsafe {
+            self.instance
+                .as_ref()
+                .unwrap()
+                .enumerate_physical_devices()
+                .unwrap()
+        };
+
+        println!("Found {} devices with Vulkan support.", devices.len());
+        let mut best_device: Option<vk::PhysicalDevice> = None;
+
+        for device in devices {
+            let instance = self.instance.as_ref().unwrap();
+            if self.is_physical_device_suitable(instance, &device) {
+                let device_properties = unsafe { instance.get_physical_device_properties(device) };
+                println!(
+                    "{:?} is suitable.",
+                    raw_string_to_string(&device_properties.device_name)
+                );
+                best_device = Some(device);
+            }
+        }
+
+        best_device
+    }
+
+    fn is_physical_device_suitable(
+        &self,
+        instance: &Instance,
+        device: &vk::PhysicalDevice,
+    ) -> bool {
+        let device_properties = unsafe { instance.get_physical_device_properties(*device) };
+        let device_features = unsafe { instance.get_physical_device_features(*device) };
+
+        let indices: QueueFamiliyIndices = Self::find_queue_families(instance, device);
+
+        device_properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
+            && device_features.geometry_shader > 0
+            && indices.graphics_family.is_some()
+    }
+
+    fn find_queue_families(
+        instance: &Instance,
+        device: &vk::PhysicalDevice,
+    ) -> QueueFamiliyIndices {
+        let mut indices = QueueFamiliyIndices {
+            graphics_family: None,
+        };
+
+        let queue_family_properties =
+            unsafe { instance.get_physical_device_queue_family_properties(*device) };
+
+        for (index, family) in (0_u32..).zip(queue_family_properties.iter()) {
+            if family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
+                indices.graphics_family = Some(index);
+                break;
+            }
+        }
+        indices
+    }
+
     fn init_vulkan(&mut self, window: &Window) {
         self.entry = Some(Entry::linked());
         self.instance = Some(Self::create_instance(self.entry.as_ref().unwrap(), window));
         self.init_debug_messenger();
+        let device = self.get_physical_device();
     }
 
     fn render() {}
