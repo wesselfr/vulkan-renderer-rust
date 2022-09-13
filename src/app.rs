@@ -1,4 +1,4 @@
-use std::{borrow::Cow, ffi::CStr, ptr};
+use std::{ffi::CStr, ptr};
 
 use ash::{
     extensions::ext::DebugUtils,
@@ -13,6 +13,8 @@ use winit::{
     window::{Window, WindowBuilder},
 };
 
+use crate::utils::*;
+
 const WIDTH: i32 = 800;
 const HEIGHT: i32 = 600;
 
@@ -26,40 +28,6 @@ pub struct App {
     instance: Option<Instance>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
-}
-
-// from: https://github.com/ash-rs/ash/blob/master/examples/src/lib.rs
-unsafe extern "system" fn vulkan_debug_callback(
-    message_severity: vk::DebugUtilsMessageSeverityFlagsEXT,
-    message_type: vk::DebugUtilsMessageTypeFlagsEXT,
-    p_callback_data: *const vk::DebugUtilsMessengerCallbackDataEXT,
-    _user_data: *mut std::os::raw::c_void,
-) -> vk::Bool32 {
-    let callback_data = *p_callback_data;
-    let message_id_number: i32 = callback_data.message_id_number as i32;
-
-    let message_id_name = if callback_data.p_message_id_name.is_null() {
-        Cow::from("")
-    } else {
-        CStr::from_ptr(callback_data.p_message_id_name).to_string_lossy()
-    };
-
-    let message = if callback_data.p_message.is_null() {
-        Cow::from("")
-    } else {
-        CStr::from_ptr(callback_data.p_message).to_string_lossy()
-    };
-
-    println!(
-        "{:?}:\n{:?} [{} ({})] : {}\n",
-        message_severity,
-        message_type,
-        message_id_name,
-        &message_id_number.to_string(),
-        message,
-    );
-
-    vk::FALSE
 }
 
 impl App {
@@ -106,7 +74,39 @@ impl App {
     }
 
     // Todo: add checks for validaiton layers.
-    fn has_validation_layer_support() -> bool {
+    fn has_validation_layer_support(entry: &Entry) -> bool {
+        let layer_properties = entry.enumerate_instance_layer_properties().unwrap();
+
+        if layer_properties.is_empty() {
+            eprintln!("No layers availible");
+            return false;
+        }
+
+        // print availble layers
+        println!("Availible Layers: ");
+        for layer in layer_properties.iter() {
+            println!("- {}", raw_string_to_string(&layer.layer_name));
+        }
+
+        // Todo: move this out of the funciton.
+        let required_validation_layers = ["VK_LAYER_KHRONOS_validation"];
+
+        for required_layer in required_validation_layers.iter() {
+            let mut is_found = false;
+
+            for layer in layer_properties.iter() {
+                let layer_name = raw_string_to_string(&layer.layer_name);
+                if *required_layer == layer_name {
+                    is_found = true;
+                    break;
+                }
+            }
+
+            if !is_found {
+                return false;
+            }
+        }
+
         true
     }
 
@@ -132,7 +132,7 @@ impl App {
                 .push(CStr::from_bytes_with_nul_unchecked(b"VK_EXT_debug_utils\0").as_ptr());
 
             let mut layer_names: Vec<&CStr> = Vec::new();
-            if VALIDATION_LAYERS_ENABLED && Self::has_validation_layer_support() {
+            if VALIDATION_LAYERS_ENABLED && Self::has_validation_layer_support(entry) {
                 println!("VALIDATION LAYERS ACTIVE");
                 layer_names.push(CStr::from_bytes_with_nul_unchecked(
                     b"VK_LAYER_KHRONOS_validation\0",
