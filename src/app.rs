@@ -1,4 +1,4 @@
-use std::{ffi::CStr, ptr};
+use std::{ffi::CStr, os::raw::c_char, ptr};
 
 use ash::{
     extensions::ext::DebugUtils,
@@ -23,6 +23,8 @@ const VALIDATION_LAYERS_ENABLED: bool = true;
 #[cfg(not(debug_assertions))]
 const VALIDATION_LAYERS_ENABLED: bool = false;
 
+const REQUIRED_VALIDATION_LAYERS: [&str; 1] = ["VK_LAYER_KHRONOS_validation"];
+
 struct QueueFamiliyIndices {
     graphics_family: Option<u32>,
 }
@@ -30,6 +32,7 @@ struct QueueFamiliyIndices {
 pub struct App {
     entry: Option<Entry>,
     instance: Option<Instance>,
+    device: Option<ash::Device>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -39,12 +42,13 @@ impl App {
         App {
             entry: None,
             instance: None,
+            device: None,
             debug_utils_loader: None,
             debug_callback: None,
         }
     }
 
-    pub fn run(&mut self) {
+    pub fn run(mut self) {
         let (event_loop, window) = Self::init_window();
         self.init_vulkan(&window);
 
@@ -58,7 +62,7 @@ impl App {
                 } if window_id == window.id() => *control_flow = ControlFlow::Exit,
                 Event::MainEventsCleared => {
                     // Update renderer
-                    Self::render();
+                    self.render();
                     window.request_redraw();
                 }
                 _ => (),
@@ -92,10 +96,7 @@ impl App {
             println!("- {}", raw_string_to_string(&layer.layer_name));
         }
 
-        // Todo: move this out of the funciton.
-        let required_validation_layers = ["VK_LAYER_KHRONOS_validation"];
-
-        for required_layer in required_validation_layers.iter() {
+        for required_layer in REQUIRED_VALIDATION_LAYERS.iter() {
             let mut is_found = false;
 
             for layer in layer_properties.iter() {
@@ -263,19 +264,91 @@ impl App {
         indices
     }
 
+    fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
+        let indices = Self::find_queue_families(self.instance.as_ref().unwrap(), physical_device);
+
+        let queue_priorities = [1.0_f32];
+        let queue_create_info = vk::DeviceQueueCreateInfo {
+            queue_family_index: indices.graphics_family.unwrap(),
+            queue_count: 1,
+            p_queue_priorities: queue_priorities.as_ptr(),
+            ..Default::default()
+        };
+
+        let physical_device_features = vk::PhysicalDeviceFeatures {
+            ..Default::default()
+        };
+
+        let requred_validation_layer_raw_names: Vec<&CStr> = REQUIRED_VALIDATION_LAYERS
+            .iter()
+            .map(|layer_name| unsafe { CStr::from_bytes_with_nul_unchecked(layer_name.as_bytes()) })
+            .collect();
+
+        let enable_layer_names: Vec<*const c_char> = requred_validation_layer_raw_names
+            .iter()
+            .map(|layer_name| layer_name.as_ptr())
+            .collect();
+
+        let create_info = vk::DeviceCreateInfo {
+            p_queue_create_infos: &queue_create_info,
+            queue_create_info_count: 1,
+            p_enabled_features: &physical_device_features,
+            enabled_extension_count: 0,
+            enabled_layer_count: if VALIDATION_LAYERS_ENABLED {
+                REQUIRED_VALIDATION_LAYERS.len()
+            } else {
+                0
+            } as u32,
+            pp_enabled_layer_names: if VALIDATION_LAYERS_ENABLED {
+                enable_layer_names.as_ptr()
+            } else {
+                ptr::null()
+            },
+            ..Default::default()
+        };
+
+        let device = unsafe {
+            self.instance
+                .as_ref()
+                .unwrap()
+                .create_device(*physical_device, &create_info, None)
+        };
+        self.device = Some(device.expect("Error while creating logical device."));
+
+        let graphics_queue = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .get_device_queue(indices.graphics_family.unwrap(), 0)
+        };
+    }
+
     fn init_vulkan(&mut self, window: &Window) {
         self.entry = Some(Entry::linked());
         self.instance = Some(Self::create_instance(self.entry.as_ref().unwrap(), window));
         self.init_debug_messenger();
-        let device = self.get_physical_device();
+        let physical_device = self
+            .get_physical_device()
+            .expect("Error while getting physical device");
+        self.create_logical_device(&physical_device);
     }
 
-    fn render() {}
+    fn render(&self) {}
     pub fn shutdown(&self) {
         println!("Shutdown called");
         unsafe {
+            self.device.as_ref().unwrap().destroy_device(None);
+
+            if VALIDATION_LAYERS_ENABLED {
+                self.debug_utils_loader
+                    .as_ref()
+                    .unwrap()
+                    .destroy_debug_utils_messenger(*self.debug_callback.as_ref().unwrap(), None);
+            }
+
             self.instance.as_ref().unwrap().destroy_instance(None);
         }
+        println!("Shutdown okay");
     }
 }
 
