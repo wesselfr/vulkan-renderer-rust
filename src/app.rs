@@ -10,7 +10,7 @@ use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
-    window::{self, Window, WindowBuilder},
+    window::{Window, WindowBuilder},
 };
 
 const WIDTH: i32 = 800;
@@ -128,9 +128,8 @@ impl App {
                 .unwrap()
                 .to_vec();
             extension_names.push(DebugUtils::name().as_ptr());
-            extension_names.push(CStr::from_bytes_with_nul_unchecked(
-                b"VK_EXT_debug_utils\0",
-            ).as_ptr());
+            extension_names
+                .push(CStr::from_bytes_with_nul_unchecked(b"VK_EXT_debug_utils\0").as_ptr());
 
             let mut layer_names: Vec<&CStr> = Vec::new();
             if VALIDATION_LAYERS_ENABLED && Self::has_validation_layer_support() {
@@ -138,7 +137,6 @@ impl App {
                 layer_names.push(CStr::from_bytes_with_nul_unchecked(
                     b"VK_LAYER_KHRONOS_validation\0",
                 ));
-                
             }
 
             let layers_names_raw: Vec<*const i8> = layer_names
@@ -155,15 +153,14 @@ impl App {
                 flags: vk::InstanceCreateFlags::default(),
                 ..Default::default()
             };
-            let instance = entry.create_instance(&create_info, None).unwrap();
 
-            instance
+            entry.create_instance(&create_info, None).unwrap()
         }
     }
 
     fn init_vulkan(&mut self, window: &Window) {
         self.entry = Some(Entry::linked());
-        self.instance = Some(Self::create_instance(&self.entry.as_ref().unwrap(), window));
+        self.instance = Some(Self::create_instance(self.entry.as_ref().unwrap(), window));
 
         if !VALIDATION_LAYERS_ENABLED {
             return;
@@ -180,7 +177,6 @@ impl App {
                 | vk::DebugUtilsMessageTypeFlagsEXT::PERFORMANCE,
             pfn_user_callback: Some(vulkan_debug_callback),
             p_user_data: ptr::null_mut(),
-            ..Default::default()
         };
 
         assert!(self.entry.is_some());
