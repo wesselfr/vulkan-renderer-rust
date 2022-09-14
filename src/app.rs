@@ -42,6 +42,7 @@ pub struct App {
     instance: Option<Instance>,
     device: Option<ash::Device>,
     graphics_queue: Option<vk::Queue>,
+    present_queue: Option<vk::Queue>,
     surface: Option<vk::SurfaceKHR>,
     surface_loader: Option<ash::extensions::khr::Surface>,
     debug_utils_loader: Option<DebugUtils>,
@@ -55,6 +56,7 @@ impl App {
             instance: None,
             device: None,
             graphics_queue: None,
+            present_queue: None,
             surface: None,
             surface_loader: None,
             debug_utils_loader: None,
@@ -391,6 +393,13 @@ impl App {
                 .as_ref()
                 .unwrap()
                 .get_device_queue(indices.graphics_family.unwrap(), 0)
+        });
+
+        self.present_queue = Some(unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .get_device_queue(indices.present_familiy.unwrap(), 0)
         });
     }
 
