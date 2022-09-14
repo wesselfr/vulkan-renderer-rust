@@ -34,6 +34,7 @@ const REQUIRED_VALIDATION_LAYERS: [&str; 1] = ["VK_LAYER_KHRONOS_validation"];
 
 struct QueueFamiliyIndices {
     graphics_family: Option<u32>,
+    present_familiy: Option<u32>,
 }
 
 pub struct App {
@@ -94,7 +95,6 @@ impl App {
         (event_loop, window)
     }
 
-    // Todo: add checks for validaiton layers.
     fn has_validation_layer_support(entry: &Entry) -> bool {
         let layer_properties = entry.enumerate_instance_layer_properties().unwrap();
 
@@ -282,7 +282,12 @@ impl App {
         let device_properties = unsafe { instance.get_physical_device_properties(*device) };
         let device_features = unsafe { instance.get_physical_device_features(*device) };
 
-        let indices: QueueFamiliyIndices = Self::find_queue_families(instance, device);
+        let indices: QueueFamiliyIndices = Self::find_queue_families(
+            instance,
+            device,
+            self.surface.as_ref().unwrap(),
+            self.surface_loader.as_ref().unwrap(),
+        );
 
         device_properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
             && device_features.geometry_shader > 0
@@ -292,9 +297,12 @@ impl App {
     fn find_queue_families(
         instance: &Instance,
         device: &vk::PhysicalDevice,
+        surface: &vk::SurfaceKHR,
+        surface_loader: &ash::extensions::khr::Surface,
     ) -> QueueFamiliyIndices {
         let mut indices = QueueFamiliyIndices {
             graphics_family: None,
+            present_familiy: None,
         };
 
         let queue_family_properties =
@@ -303,6 +311,19 @@ impl App {
         for (index, family) in (0_u32..).zip(queue_family_properties.iter()) {
             if family.queue_flags.contains(vk::QueueFlags::GRAPHICS) {
                 indices.graphics_family = Some(index);
+            }
+
+            let is_present_supported = unsafe {
+                surface_loader
+                    .get_physical_device_surface_support(*device, index, *surface)
+                    .unwrap()
+            };
+
+            if family.queue_count > 0 && is_present_supported {
+                indices.present_familiy = Some(index);
+            }
+
+            if !family.queue_flags.is_empty() {
                 break;
             }
         }
@@ -310,7 +331,12 @@ impl App {
     }
 
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
-        let indices = Self::find_queue_families(self.instance.as_ref().unwrap(), physical_device);
+        let indices = Self::find_queue_families(
+            self.instance.as_ref().unwrap(),
+            physical_device,
+            self.surface.as_ref().unwrap(),
+            self.surface_loader.as_ref().unwrap(),
+        );
 
         let queue_priorities = [1.0_f32];
         let queue_create_info = vk::DeviceQueueCreateInfo {
@@ -387,7 +413,10 @@ impl App {
         println!("Shutdown called");
         unsafe {
             self.device.as_ref().unwrap().destroy_device(None);
-            self.surface_loader.as_ref().unwrap().destroy_surface(*self.surface.as_ref().unwrap(), None);
+            self.surface_loader
+                .as_ref()
+                .unwrap()
+                .destroy_surface(*self.surface.as_ref().unwrap(), None);
 
             if VALIDATION_LAYERS_ENABLED {
                 self.debug_utils_loader
