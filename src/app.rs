@@ -1,3 +1,4 @@
+use core::ffi::c_void;
 use std::{ffi::CStr, os::raw::c_char, ptr};
 
 use ash::{
@@ -10,8 +11,14 @@ use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
     event_loop::{ControlFlow, EventLoop},
+    platform::windows::WindowExtWindows,
     window::{Window, WindowBuilder},
 };
+
+#[cfg(target_os = "windows")]
+use ash::extensions::khr::Win32Surface;
+#[cfg(target_os = "windows")]
+use winapi::um::libloaderapi::GetModuleHandleW;
 
 use crate::utils::*;
 
@@ -34,6 +41,8 @@ pub struct App {
     instance: Option<Instance>,
     device: Option<ash::Device>,
     graphics_queue: Option<vk::Queue>,
+    surface: Option<vk::SurfaceKHR>,
+    surface_loader: Option<ash::extensions::khr::Surface>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -45,6 +54,8 @@ impl App {
             instance: None,
             device: None,
             graphics_queue: None,
+            surface: None,
+            surface_loader: None,
             debug_utils_loader: None,
             debug_callback: None,
         }
@@ -204,6 +215,38 @@ impl App {
         };
     }
 
+    #[cfg(target_os = "windows")]
+    fn create_surface(
+        &mut self,
+        window: &Window,
+    ) -> (vk::SurfaceKHR, ash::extensions::khr::Surface) {
+        // TODO: Windows only atm. Add support for other platforms later.
+        unsafe {
+            let hwnd = window.hwnd();
+            let hinstance = GetModuleHandleW(ptr::null()) as *const c_void;
+            let win32_create_info = vk::Win32SurfaceCreateInfoKHR {
+                s_type: vk::StructureType::WIN32_SURFACE_CREATE_INFO_KHR,
+                p_next: ptr::null(),
+                flags: Default::default(),
+                hinstance,
+                hwnd: hwnd as *const c_void,
+            };
+            let win32_surface_loader = Win32Surface::new(
+                self.entry.as_ref().unwrap(),
+                self.instance.as_ref().unwrap(),
+            );
+            (
+                win32_surface_loader
+                    .create_win32_surface(&win32_create_info, None)
+                    .unwrap(),
+                ash::extensions::khr::Surface::new(
+                    self.entry.as_ref().unwrap(),
+                    self.instance.as_ref().unwrap(),
+                ),
+            )
+        }
+    }
+
     fn get_physical_device(&mut self) -> Option<vk::PhysicalDevice> {
         let devices = unsafe {
             self.instance
@@ -329,6 +372,10 @@ impl App {
         self.entry = Some(Entry::linked());
         self.instance = Some(Self::create_instance(self.entry.as_ref().unwrap(), window));
         self.init_debug_messenger();
+        let (surface, surface_loader) = self.create_surface(window);
+        self.surface = Some(surface);
+        self.surface_loader = Some(surface_loader);
+
         let physical_device = self
             .get_physical_device()
             .expect("Error while getting physical device");
@@ -340,6 +387,7 @@ impl App {
         println!("Shutdown called");
         unsafe {
             self.device.as_ref().unwrap().destroy_device(None);
+            self.surface_loader.as_ref().unwrap().destroy_surface(*self.surface.as_ref().unwrap(), None);
 
             if VALIDATION_LAYERS_ENABLED {
                 self.debug_utils_loader
