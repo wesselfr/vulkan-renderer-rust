@@ -1,5 +1,9 @@
 use core::ffi::c_void;
-use std::{ffi::CStr, os::raw::c_char, ptr};
+use std::{
+    ffi::CStr,
+    os::raw::c_char,
+    ptr,
+};
 
 use ash::{
     extensions::ext::DebugUtils,
@@ -20,7 +24,7 @@ use ash::extensions::khr::Win32Surface;
 #[cfg(target_os = "windows")]
 use winapi::um::libloaderapi::GetModuleHandleW;
 
-use crate::utils::*;
+use crate::utils::{self, *};
 
 const WIDTH: i32 = 800;
 const HEIGHT: i32 = 600;
@@ -31,6 +35,11 @@ const VALIDATION_LAYERS_ENABLED: bool = true;
 const VALIDATION_LAYERS_ENABLED: bool = false;
 
 const REQUIRED_VALIDATION_LAYERS: [&str; 1] = ["VK_LAYER_KHRONOS_validation"];
+
+//Todo: find a way to have one of the two, not both
+const REQUIRED_DEVICE_EXTENSIONS_RAW: [*const i8; 1] =
+    [ash::extensions::khr::Swapchain::name().as_ptr()];
+const REQUIRED_DEVICE_EXTENSIONS: [&str; 1] = ["VK_KHR_swapchain"];
 
 struct QueueFamiliyIndices {
     graphics_family: Option<u32>,
@@ -291,9 +300,12 @@ impl App {
             self.surface_loader.as_ref().unwrap(),
         );
 
+        let extensions_supported = Self::check_device_extension_support(instance, device);
+
         device_properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
             && device_features.geometry_shader > 0
             && indices.graphics_family.is_some()
+            && extensions_supported
     }
 
     fn find_queue_families(
@@ -332,6 +344,30 @@ impl App {
         indices
     }
 
+    fn check_device_extension_support(instance: &Instance, device: &vk::PhysicalDevice) -> bool {
+        let extension_properties = unsafe {
+            instance
+                .enumerate_device_extension_properties(*device)
+                .expect("Error while getting device extension properties")
+        };
+
+        let mut found_extensions = vec![];
+        for extension in extension_properties.iter() {
+            let extension_name = utils::raw_string_to_string(&extension.extension_name);
+
+            if REQUIRED_DEVICE_EXTENSIONS.contains(&extension_name.as_str()) {
+                found_extensions.push(extension_name);
+            }
+        }
+
+        println!("Found required extensions({}):", found_extensions.len());
+        for found_names in found_extensions.iter() {
+            println!("- {}", found_names);
+        }
+
+        found_extensions.len() == REQUIRED_DEVICE_EXTENSIONS.len()
+    }
+
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
         let indices = Self::find_queue_families(
             self.instance.as_ref().unwrap(),
@@ -366,7 +402,8 @@ impl App {
             p_queue_create_infos: &queue_create_info,
             queue_create_info_count: 1,
             p_enabled_features: &physical_device_features,
-            enabled_extension_count: 0,
+            enabled_extension_count: REQUIRED_DEVICE_EXTENSIONS_RAW.len() as u32,
+            pp_enabled_extension_names: REQUIRED_DEVICE_EXTENSIONS_RAW.as_ptr(),
             enabled_layer_count: if VALIDATION_LAYERS_ENABLED {
                 REQUIRED_VALIDATION_LAYERS.len()
             } else {
