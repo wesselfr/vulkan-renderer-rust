@@ -2,7 +2,7 @@ use core::ffi::c_void;
 use std::{ffi::CStr, os::raw::c_char, ptr};
 
 use ash::{
-    extensions::ext::DebugUtils,
+    extensions::{ext::DebugUtils, khr::Swapchain},
     vk::{self},
     Entry,
 };
@@ -56,6 +56,8 @@ pub struct App {
     present_queue: Option<vk::Queue>,
     surface: Option<vk::SurfaceKHR>,
     surface_loader: Option<ash::extensions::khr::Surface>,
+    swapchain: Option<vk::SwapchainKHR>,
+    swapchain_loader: Option<Swapchain>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -70,6 +72,8 @@ impl App {
             present_queue: None,
             surface: None,
             surface_loader: None,
+            swapchain: None,
+            swapchain_loader: None,
             debug_utils_loader: None,
             debug_callback: None,
         }
@@ -307,7 +311,6 @@ impl App {
         let mut swap_chain_supported = false;
         if extensions_supported {
             let swap_chain_support = Self::query_swapchain_support(
-                instance,
                 device,
                 self.surface.as_ref().unwrap(),
                 self.surface_loader.as_ref().unwrap(),
@@ -385,7 +388,6 @@ impl App {
     }
 
     fn query_swapchain_support(
-        instance: &Instance,
         physical_device: &vk::PhysicalDevice,
         surface: &vk::SurfaceKHR,
         surface_loader: &ash::extensions::khr::Surface,
@@ -407,6 +409,119 @@ impl App {
                 present_modes,
             }
         }
+    }
+
+    fn choose_swap_surface_format(
+        available_formats: Vec<vk::SurfaceFormatKHR>,
+    ) -> vk::SurfaceFormatKHR {
+        for format in available_formats.iter() {
+            if format.format == vk::Format::B8G8R8_SRGB
+                && format.color_space == vk::ColorSpaceKHR::SRGB_NONLINEAR
+            {
+                return *format;
+            }
+        }
+        available_formats[0]
+    }
+
+    fn choose_swap_present_mode(
+        available_present_modes: Vec<vk::PresentModeKHR>,
+    ) -> vk::PresentModeKHR {
+        for present_mode in available_present_modes.iter() {
+            if *present_mode == vk::PresentModeKHR::MAILBOX {
+                return vk::PresentModeKHR::MAILBOX;
+            }
+        }
+        vk::PresentModeKHR::FIFO
+    }
+
+    fn choose_swap_extent(capabilities: vk::SurfaceCapabilitiesKHR) -> vk::Extent2D {
+        if capabilities.current_extent.width != u32::max_value() {
+            capabilities.current_extent
+        } else {
+            vk::Extent2D {
+                width: clamp(
+                    WIDTH as u32,
+                    capabilities.min_image_extent.width,
+                    capabilities.max_image_extent.width,
+                ),
+                height: clamp(
+                    HEIGHT as u32,
+                    capabilities.min_image_extent.height,
+                    capabilities.max_image_extent.height,
+                ),
+            }
+        }
+    }
+
+    fn create_swap_chain(&mut self, physical_device: &vk::PhysicalDevice) {
+        let swap_chain_support = Self::query_swapchain_support(
+            physical_device,
+            self.surface.as_ref().unwrap(),
+            self.surface_loader.as_ref().unwrap(),
+        );
+
+        let surface_format = Self::choose_swap_surface_format(swap_chain_support.formats);
+        let present_mode = Self::choose_swap_present_mode(swap_chain_support.present_modes);
+        let extent = Self::choose_swap_extent(swap_chain_support.capabilities);
+
+        let image_count = swap_chain_support.capabilities.min_image_count + 1;
+        let image_count = if swap_chain_support.capabilities.max_image_count > 0 {
+            image_count.min(swap_chain_support.capabilities.max_image_count)
+        } else {
+            image_count
+        };
+
+        let mut create_info = vk::SwapchainCreateInfoKHR {
+            surface: *self.surface.as_ref().unwrap(),
+            min_image_count: image_count,
+            image_color_space: surface_format.color_space,
+            image_format: surface_format.format,
+            image_extent: extent,
+            image_array_layers: 1,
+            image_usage: vk::ImageUsageFlags::COLOR_ATTACHMENT,
+            pre_transform: swap_chain_support.capabilities.current_transform,
+            composite_alpha: vk::CompositeAlphaFlagsKHR::OPAQUE,
+            present_mode,
+            clipped: vk::TRUE,
+            old_swapchain: vk::SwapchainKHR::null(),
+            ..Default::default()
+        };
+
+        let indices = Self::find_queue_families(
+            self.instance.as_ref().unwrap(),
+            physical_device,
+            self.surface.as_ref().unwrap(),
+            self.surface_loader.as_ref().unwrap(),
+        );
+        let queue_family_indices = vec![
+            indices.graphics_family.unwrap(),
+            indices.present_familiy.unwrap(),
+        ];
+
+        if indices.graphics_family != indices.present_familiy {
+            create_info.image_sharing_mode = vk::SharingMode::CONCURRENT;
+            create_info.queue_family_index_count = 2;
+            create_info.p_queue_family_indices = queue_family_indices.as_ptr();
+        } else {
+            create_info.image_sharing_mode = vk::SharingMode::EXCLUSIVE;
+            create_info.queue_family_index_count = 0;
+            create_info.p_queue_family_indices = ptr::null();
+        }
+
+        self.swapchain_loader = Some(ash::extensions::khr::Swapchain::new(
+            self.instance.as_ref().unwrap(),
+            self.device.as_ref().unwrap(),
+        ));
+        self.swapchain = unsafe {
+            Some(
+                self.swapchain_loader
+                    .as_ref()
+                    .unwrap()
+                    .create_swapchain(&create_info, None)
+                    .expect("Failed to create Swapchain!"),
+            )
+        };
     }
 
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
@@ -493,6 +608,7 @@ impl App {
             .get_physical_device()
             .expect("Error while getting physical device");
         self.create_logical_device(&physical_device);
+        self.create_swap_chain(&physical_device);
     }
 
     fn render(&self) {}
@@ -516,6 +632,17 @@ impl App {
         }
         println!("Shutdown okay");
     }
+}
+
+fn clamp(value: u32, min: u32, max: u32) -> u32 {
+    let mut value = value;
+    if value < min {
+        value = min
+    }
+    if value > max {
+        value = max
+    }
+    value
 }
 
 impl Default for App {
