@@ -1,9 +1,5 @@
 use core::ffi::c_void;
-use std::{
-    ffi::CStr,
-    os::raw::c_char,
-    ptr,
-};
+use std::{ffi::CStr, os::raw::c_char, ptr};
 
 use ash::{
     extensions::ext::DebugUtils,
@@ -44,6 +40,12 @@ const REQUIRED_DEVICE_EXTENSIONS: [&str; 1] = ["VK_KHR_swapchain"];
 struct QueueFamiliyIndices {
     graphics_family: Option<u32>,
     present_familiy: Option<u32>,
+}
+
+struct SwapChainSupportDetails {
+    capabilities: vk::SurfaceCapabilitiesKHR,
+    formats: Vec<vk::SurfaceFormatKHR>,
+    present_modes: Vec<vk::PresentModeKHR>,
 }
 
 pub struct App {
@@ -302,10 +304,24 @@ impl App {
 
         let extensions_supported = Self::check_device_extension_support(instance, device);
 
+        let mut swap_chain_supported = false;
+        if extensions_supported {
+            let swap_chain_support = Self::query_swapchain_support(
+                instance,
+                device,
+                self.surface.as_ref().unwrap(),
+                self.surface_loader.as_ref().unwrap(),
+            );
+
+            swap_chain_supported = !swap_chain_support.formats.is_empty()
+                && !swap_chain_support.present_modes.is_empty()
+        }
+
         device_properties.device_type == vk::PhysicalDeviceType::DISCRETE_GPU
             && device_features.geometry_shader > 0
             && indices.graphics_family.is_some()
             && extensions_supported
+            && swap_chain_supported
     }
 
     fn find_queue_families(
@@ -366,6 +382,31 @@ impl App {
         }
 
         found_extensions.len() == REQUIRED_DEVICE_EXTENSIONS.len()
+    }
+
+    fn query_swapchain_support(
+        instance: &Instance,
+        physical_device: &vk::PhysicalDevice,
+        surface: &vk::SurfaceKHR,
+        surface_loader: &ash::extensions::khr::Surface,
+    ) -> SwapChainSupportDetails {
+        unsafe {
+            let capabilities = surface_loader
+                .get_physical_device_surface_capabilities(*physical_device, *surface)
+                .expect("Failed to query for surface capabilities.");
+            let formats = surface_loader
+                .get_physical_device_surface_formats(*physical_device, *surface)
+                .expect("Failed to query for surface formats.");
+            let present_modes = surface_loader
+                .get_physical_device_surface_present_modes(*physical_device, *surface)
+                .expect("Failed to query for surface present mode.");
+
+            SwapChainSupportDetails {
+                capabilities,
+                formats,
+                present_modes,
+            }
+        }
     }
 
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
