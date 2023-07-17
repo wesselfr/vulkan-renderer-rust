@@ -59,6 +59,7 @@ pub struct App {
     swapchain: Option<vk::SwapchainKHR>,
     swapchain_loader: Option<Swapchain>,
     swapchain_images: Option<Vec<vk::Image>>,
+    swapchain_image_views: Option<Vec<vk::ImageView>>,
     swapchain_format: Option<vk::Format>,
     swapchain_extent: Option<vk::Extent2D>,
     debug_utils_loader: Option<DebugUtils>,
@@ -78,6 +79,7 @@ impl App {
             swapchain: None,
             swapchain_loader: None,
             swapchain_images: None,
+            swapchain_image_views: None,
             swapchain_format: None,
             swapchain_extent: None,
             debug_utils_loader: None,
@@ -467,7 +469,8 @@ impl App {
             self.surface_loader.as_ref().unwrap(),
         );
 
-        let surface_format: vk::SurfaceFormatKHR = Self::choose_swap_surface_format(swap_chain_support.formats);
+        let surface_format: vk::SurfaceFormatKHR =
+            Self::choose_swap_surface_format(swap_chain_support.formats);
         let present_mode = Self::choose_swap_present_mode(swap_chain_support.present_modes);
         let extent = Self::choose_swap_extent(swap_chain_support.capabilities);
 
@@ -530,14 +533,57 @@ impl App {
         };
 
         let present_images = unsafe {
-            self.swapchain_loader.as_ref().unwrap().get_swapchain_images(*self.swapchain.as_ref().unwrap()).unwrap()
+            self.swapchain_loader
+                .as_ref()
+                .unwrap()
+                .get_swapchain_images(*self.swapchain.as_ref().unwrap())
+                .unwrap()
         };
 
         self.swapchain_images = Some(Vec::new());
-        self.swapchain_images.as_mut().unwrap().clone_from(&present_images);
+        self.swapchain_images
+            .as_mut()
+            .unwrap()
+            .clone_from(&present_images);
 
         self.swapchain_extent = Some(extent);
         self.swapchain_format = Some(surface_format.format);
+    }
+
+    fn create_image_views(&mut self) {
+        self.swapchain_image_views = Some(Vec::new());
+        self.swapchain_image_views
+            .as_mut()
+            .unwrap()
+            .reserve(self.swapchain_images.as_ref().unwrap().len());
+
+        for image in self.swapchain_images.as_ref().unwrap() {
+            let create_info = vk::ImageViewCreateInfo {
+                image: *image,
+                view_type: vk::ImageViewType::TYPE_2D,
+                format: *self.swapchain_format.as_ref().unwrap(),
+                subresource_range: vk::ImageSubresourceRange {
+                    aspect_mask: vk::ImageAspectFlags::COLOR,
+                    base_mip_level: 0,
+                    level_count: 1,
+                    base_array_layer: 0,
+                    layer_count: 1,
+                },
+                ..Default::default()
+            };
+
+            let image_view = unsafe {
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .create_image_view(&create_info, None)
+                    .expect("Failed to create image views!")
+            };
+            self.swapchain_image_views
+                .as_mut()
+                .unwrap()
+                .push(image_view);
+        }
     }
 
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
@@ -625,16 +671,23 @@ impl App {
             .expect("Error while getting physical device");
         self.create_logical_device(&physical_device);
         self.create_swap_chain(&physical_device);
+        self.create_image_views();
     }
 
-    fn render(&self) 
-    {
+    fn render(&self) {
         // Do cool stuff here.
     }
 
     pub fn shutdown(&self) {
         println!("Shutdown called");
         unsafe {
+            for image_view in self.swapchain_image_views.as_ref().unwrap() {
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .destroy_image_view(*image_view, None);
+            }
+
             self.device.as_ref().unwrap().destroy_device(None);
             self.surface_loader
                 .as_ref()
