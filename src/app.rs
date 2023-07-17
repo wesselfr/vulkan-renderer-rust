@@ -58,6 +58,9 @@ pub struct App {
     surface_loader: Option<ash::extensions::khr::Surface>,
     swapchain: Option<vk::SwapchainKHR>,
     swapchain_loader: Option<Swapchain>,
+    swapchain_images: Option<Vec<vk::Image>>,
+    swapchain_format: Option<vk::Format>,
+    swapchain_extent: Option<vk::Extent2D>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -74,6 +77,9 @@ impl App {
             surface_loader: None,
             swapchain: None,
             swapchain_loader: None,
+            swapchain_images: None,
+            swapchain_format: None,
+            swapchain_extent: None,
             debug_utils_loader: None,
             debug_callback: None,
         }
@@ -461,7 +467,7 @@ impl App {
             self.surface_loader.as_ref().unwrap(),
         );
 
-        let surface_format = Self::choose_swap_surface_format(swap_chain_support.formats);
+        let surface_format: vk::SurfaceFormatKHR = Self::choose_swap_surface_format(swap_chain_support.formats);
         let present_mode = Self::choose_swap_present_mode(swap_chain_support.present_modes);
         let extent = Self::choose_swap_extent(swap_chain_support.capabilities);
 
@@ -522,6 +528,16 @@ impl App {
                     .expect("Failed to create Swapchain!"),
             )
         };
+
+        let present_images = unsafe {
+            self.swapchain_loader.as_ref().unwrap().get_swapchain_images(*self.swapchain.as_ref().unwrap()).unwrap()
+        };
+
+        self.swapchain_images = Some(Vec::new());
+        self.swapchain_images.as_mut().unwrap().clone_from(&present_images);
+
+        self.swapchain_extent = Some(extent);
+        self.swapchain_format = Some(surface_format.format);
     }
 
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
