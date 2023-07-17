@@ -611,7 +611,11 @@ impl App {
         self.create_swap_chain(&physical_device);
     }
 
-    fn render(&self) {}
+    fn render(&self) 
+    {
+        // Do cool stuff here.
+    }
+
     pub fn shutdown(&self) {
         println!("Shutdown called");
         unsafe {
