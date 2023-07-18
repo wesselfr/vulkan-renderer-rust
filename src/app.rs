@@ -586,6 +586,11 @@ impl App {
         }
     }
 
+    fn create_graphics_pipeline(&mut self)
+    {
+
+    }
+
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
         let indices = Self::find_queue_families(
             self.instance.as_ref().unwrap(),
@@ -672,6 +677,7 @@ impl App {
         self.create_logical_device(&physical_device);
         self.create_swap_chain(&physical_device);
         self.create_image_views();
+        self.create_graphics_pipeline();
     }
 
     fn render(&self) {
