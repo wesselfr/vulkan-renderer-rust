@@ -8,7 +8,10 @@ use std::{
 
 use ash::{
     extensions::{ext::DebugUtils, khr::Swapchain},
-    vk::{self, ShaderStageFlags},
+    vk::{
+        self, ColorComponentFlags, CullModeFlags, FrontFace, PolygonMode, PrimitiveTopology,
+        ShaderStageFlags,
+    },
     Entry,
 };
 pub use ash::{Device, Instance};
@@ -67,6 +70,7 @@ pub struct App {
     swapchain_image_views: Option<Vec<vk::ImageView>>,
     swapchain_format: Option<vk::Format>,
     swapchain_extent: Option<vk::Extent2D>,
+    pipeline_layout: Option<vk::PipelineLayout>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -87,6 +91,7 @@ impl App {
             swapchain_image_views: None,
             swapchain_format: None,
             swapchain_extent: None,
+            pipeline_layout: None,
             debug_utils_loader: None,
             debug_callback: None,
         }
@@ -607,7 +612,7 @@ impl App {
         }
     }
 
-    fn create_graphics_pipeline(&mut self) {
+    fn create_graphics_pipeline(&mut self) -> vk::PipelineLayout {
         let vertex_shader_code = read_shader_file(Path::new("assets/shaders/vert.spv"))
             .expect("Error while reading vertex shader");
         let fragment_shader_code = read_shader_file(Path::new("assets/shaders/frag.spv"))
@@ -633,8 +638,74 @@ impl App {
             },
         ];
 
-        let shader_stages = vk::PipelineShaderStageCreateInfo {
+        let vertex_input_info = vk::PipelineVertexInputStateCreateInfo {
+            vertex_binding_description_count: 0,
+            vertex_attribute_description_count: 0,
             ..Default::default()
+        };
+
+        let input_assembly = vk::PipelineInputAssemblyStateCreateInfo {
+            topology: PrimitiveTopology::TRIANGLE_LIST,
+            primitive_restart_enable: vk::FALSE,
+            ..Default::default()
+        };
+
+        let viewports = [vk::Viewport {
+            x: 0.0,
+            y: 0.0,
+            width: self.swapchain_extent.as_ref().unwrap().width as f32,
+            height: self.swapchain_extent.as_ref().unwrap().height as f32,
+            min_depth: 0.0,
+            max_depth: 1.0,
+        }];
+
+        let scissors = [vk::Rect2D {
+            offset: vk::Offset2D { x: 0, y: 0 },
+            extent: *self.swapchain_extent.as_ref().unwrap(),
+        }];
+
+        let viewport_state_create_info = vk::PipelineViewportStateCreateInfo {
+            viewport_count: viewports.len() as u32,
+            p_viewports: viewports.as_ptr(),
+            scissor_count: scissors.len() as u32,
+            p_scissors: scissors.as_ptr(),
+            ..Default::default()
+        };
+
+        let rasterizer_state_create_info = vk::PipelineRasterizationStateCreateInfo {
+            depth_clamp_enable: vk::FALSE,
+            rasterizer_discard_enable: vk::FALSE,
+            polygon_mode: PolygonMode::FILL,
+            line_width: 1.0,
+            cull_mode: CullModeFlags::BACK,
+            front_face: FrontFace::CLOCKWISE,
+            depth_bias_enable: vk::FALSE,
+            ..Default::default()
+        };
+
+        let color_blend_attachments = [vk::PipelineColorBlendAttachmentState {
+            color_write_mask: ColorComponentFlags::RGBA,
+            blend_enable: vk::FALSE,
+            ..Default::default()
+        }];
+
+        let color_blending = vk::PipelineColorBlendStateCreateInfo {
+            logic_op_enable: vk::FALSE,
+            attachment_count: color_blend_attachments.len() as u32,
+            p_attachments: color_blend_attachments.as_ptr(),
+            ..Default::default()
+        };
+
+        let pipeline_layout_info = vk::PipelineLayoutCreateInfo {
+            ..Default::default()
+        };
+
+        let pipeline_layout = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_pipeline_layout(&pipeline_layout_info, None)
+                .expect("Failed to create pipeline layout")
         };
 
         unsafe {
@@ -647,6 +718,8 @@ impl App {
                 .unwrap()
                 .destroy_shader_module(fragment_shader_module, None);
         }
+
+        pipeline_layout
     }
 
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
@@ -735,7 +808,7 @@ impl App {
         self.create_logical_device(&physical_device);
         self.create_swap_chain(&physical_device);
         self.create_image_views();
-        self.create_graphics_pipeline();
+        self.pipeline_layout = Some(self.create_graphics_pipeline());
     }
 
     fn render(&self) {
@@ -745,6 +818,11 @@ impl App {
     pub fn shutdown(&self) {
         println!("Shutdown called");
         unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .destroy_pipeline_layout(*self.pipeline_layout.as_ref().unwrap(), None);
+
             for image_view in self.swapchain_image_views.as_ref().unwrap() {
                 self.device
                     .as_ref()
