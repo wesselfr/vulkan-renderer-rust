@@ -10,7 +10,7 @@ use ash::{
     extensions::{ext::DebugUtils, khr::Swapchain},
     vk::{
         self, ColorComponentFlags, CullModeFlags, FrontFace, PolygonMode, PrimitiveTopology,
-        ShaderStageFlags,
+        SampleCountFlags, ShaderStageFlags,
     },
     Entry,
 };
@@ -70,6 +70,7 @@ pub struct App {
     swapchain_image_views: Option<Vec<vk::ImageView>>,
     swapchain_format: Option<vk::Format>,
     swapchain_extent: Option<vk::Extent2D>,
+    render_pass: Option<vk::RenderPass>,
     pipeline_layout: Option<vk::PipelineLayout>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
@@ -91,6 +92,7 @@ impl App {
             swapchain_image_views: None,
             swapchain_format: None,
             swapchain_extent: None,
+            render_pass: None,
             pipeline_layout: None,
             debug_utils_loader: None,
             debug_callback: None,
@@ -612,6 +614,52 @@ impl App {
         }
     }
 
+    fn create_render_pass(&mut self) {
+        let color_attachment = vk::AttachmentDescription {
+            format: *self.swapchain_format.as_ref().unwrap(),
+            samples: SampleCountFlags::TYPE_1,
+            load_op: vk::AttachmentLoadOp::CLEAR,
+            store_op: vk::AttachmentStoreOp::STORE,
+            stencil_load_op: vk::AttachmentLoadOp::DONT_CARE,
+            stencil_store_op: vk::AttachmentStoreOp::DONT_CARE,
+            initial_layout: vk::ImageLayout::UNDEFINED,
+            final_layout: vk::ImageLayout::PRESENT_SRC_KHR,
+            ..Default::default()
+        };
+
+        let color_attachment_ref = vk::AttachmentReference {
+            attachment: 0,
+            layout: vk::ImageLayout::COLOR_ATTACHMENT_OPTIMAL,
+        };
+
+        let subpass = vk::SubpassDescription {
+            pipeline_bind_point: vk::PipelineBindPoint::GRAPHICS,
+            color_attachment_count: 1,
+            p_color_attachments: &color_attachment_ref,
+            ..Default::default()
+        };
+
+        let render_pass_attachments = [color_attachment];
+
+        let render_pass_info = vk::RenderPassCreateInfo {
+            attachment_count: render_pass_attachments.len() as u32,
+            p_attachments: render_pass_attachments.as_ptr(),
+            subpass_count: 1,
+            p_subpasses: &subpass,
+            ..Default::default()
+        };
+
+        self.render_pass = unsafe {
+            Some(
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .create_render_pass(&render_pass_info, None)
+                    .expect("Failed to create render pass!"),
+            )
+        }
+    }
+
     fn create_graphics_pipeline(&mut self) -> vk::PipelineLayout {
         let vertex_shader_code = read_shader_file(Path::new("assets/shaders/vert.spv"))
             .expect("Error while reading vertex shader");
@@ -808,6 +856,7 @@ impl App {
         self.create_logical_device(&physical_device);
         self.create_swap_chain(&physical_device);
         self.create_image_views();
+        self.create_render_pass();
         self.pipeline_layout = Some(self.create_graphics_pipeline());
     }
 
@@ -822,6 +871,10 @@ impl App {
                 .as_ref()
                 .unwrap()
                 .destroy_pipeline_layout(*self.pipeline_layout.as_ref().unwrap(), None);
+            self.device
+                .as_ref()
+                .unwrap()
+                .destroy_render_pass(*self.render_pass.as_ref().unwrap(), None);
 
             for image_view in self.swapchain_image_views.as_ref().unwrap() {
                 self.device
