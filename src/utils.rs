@@ -42,7 +42,7 @@ pub unsafe extern "system" fn vulkan_debug_callback(
     };
 
     println!(
-        "{:?}:\n{:?} [{} ({})] : {}",
+        "[{:?} - {:?}] ({}({})) : {}",
         message_severity,
         message_type,
         message_id_name,
