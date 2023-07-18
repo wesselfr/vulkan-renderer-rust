@@ -1,6 +1,9 @@
 use std::borrow::Cow;
 use std::ffi::CStr;
+use std::fs::File;
+use std::io::Read;
 use std::os::raw::c_char;
+use std::path::Path;
 
 use ash::vk;
 
@@ -51,4 +54,13 @@ pub unsafe extern "system" fn vulkan_debug_callback(
     );
 
     vk::FALSE
+}
+
+pub fn read_shader_file(path: &Path) -> Result<Vec<u8>, String> {
+    if path.exists() {
+        let spv_file = File::open(path).expect("Unexpected error while reading shader file.");
+        let contents: Vec<u8> = spv_file.bytes().filter_map(|byte| byte.ok()).collect();
+        return Ok(contents);
+    }
+    Err(format!("Path: {:?} does not exist..", path))
 }

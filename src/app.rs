@@ -1,9 +1,14 @@
 use core::ffi::c_void;
-use std::{ffi::CStr, os::raw::c_char, ptr};
+use std::{
+    ffi::{CStr, CString},
+    os::raw::c_char,
+    path::Path,
+    ptr,
+};
 
 use ash::{
     extensions::{ext::DebugUtils, khr::Swapchain},
-    vk::{self},
+    vk::{self, ShaderStageFlags},
     Entry,
 };
 pub use ash::{Device, Instance};
@@ -586,9 +591,62 @@ impl App {
         }
     }
 
-    fn create_graphics_pipeline(&mut self)
-    {
+    fn create_shader_module(&mut self, code: &Vec<u8>) -> vk::ShaderModule {
+        let create_info = vk::ShaderModuleCreateInfo {
+            code_size: code.len(),
+            p_code: code.as_ptr() as *const u32,
+            ..Default::default()
+        };
 
+        unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_shader_module(&create_info, None)
+                .expect("Failed to create Shader Module!")
+        }
+    }
+
+    fn create_graphics_pipeline(&mut self) {
+        let vertex_shader_code = read_shader_file(Path::new("assets/shaders/vert.spv"))
+            .expect("Error while reading vertex shader");
+        let fragment_shader_code = read_shader_file(Path::new("assets/shaders/frag.spv"))
+            .expect("Error while reading fragment shader");
+
+        let vertex_shader_module = self.create_shader_module(&vertex_shader_code);
+        let fragment_shader_module = self.create_shader_module(&fragment_shader_code);
+
+        let main_function = CString::new("main").unwrap();
+
+        let shader_stages = [
+            vk::PipelineShaderStageCreateInfo {
+                stage: ShaderStageFlags::VERTEX,
+                module: vertex_shader_module,
+                p_name: main_function.as_ptr(),
+                ..Default::default()
+            },
+            vk::PipelineShaderStageCreateInfo {
+                stage: ShaderStageFlags::FRAGMENT,
+                module: fragment_shader_module,
+                p_name: main_function.as_ptr(),
+                ..Default::default()
+            },
+        ];
+
+        let shader_stages = vk::PipelineShaderStageCreateInfo {
+            ..Default::default()
+        };
+
+        unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .destroy_shader_module(vertex_shader_module, None);
+            self.device
+                .as_ref()
+                .unwrap()
+                .destroy_shader_module(fragment_shader_module, None);
+        }
     }
 
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
