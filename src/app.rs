@@ -72,6 +72,7 @@ pub struct App {
     swapchain_extent: Option<vk::Extent2D>,
     render_pass: Option<vk::RenderPass>,
     pipeline_layout: Option<vk::PipelineLayout>,
+    graphics_pipeline: Option<vk::Pipeline>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -94,6 +95,7 @@ impl App {
             swapchain_extent: None,
             render_pass: None,
             pipeline_layout: None,
+            graphics_pipeline: None,
             debug_utils_loader: None,
             debug_callback: None,
         }
@@ -660,7 +662,7 @@ impl App {
         }
     }
 
-    fn create_graphics_pipeline(&mut self) -> vk::PipelineLayout {
+    fn create_graphics_pipeline(&mut self) -> (vk::Pipeline, vk::PipelineLayout) {
         let vertex_shader_code = read_shader_file(Path::new("assets/shaders/vert.spv"))
             .expect("Error while reading vertex shader");
         let fragment_shader_code = read_shader_file(Path::new("assets/shaders/frag.spv"))
@@ -756,6 +758,30 @@ impl App {
                 .expect("Failed to create pipeline layout")
         };
 
+        let pipeline_create_infos = [vk::GraphicsPipelineCreateInfo {
+            stage_count: shader_stages.len() as u32,
+            p_stages: shader_stages.as_ptr(),
+            p_vertex_input_state: &vertex_input_info,
+            p_input_assembly_state: &input_assembly,
+            p_viewport_state: &viewport_state_create_info,
+            p_rasterization_state: &rasterizer_state_create_info,
+            //p_multisample_state: TODO
+            p_color_blend_state: &color_blending,
+            //p_dynamic_state: TODO
+            layout: pipeline_layout,
+            render_pass: *self.render_pass.as_ref().unwrap(),
+            subpass: 0,
+            ..Default::default()
+        }];
+
+        let graphics_pipelines = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_graphics_pipelines(vk::PipelineCache::null(), &pipeline_create_infos, None)
+                .expect("Failed to create graphics pipeline.")
+        };
+
         unsafe {
             self.device
                 .as_ref()
@@ -767,7 +793,7 @@ impl App {
                 .destroy_shader_module(fragment_shader_module, None);
         }
 
-        pipeline_layout
+        (graphics_pipelines[0], pipeline_layout)
     }
 
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
@@ -857,7 +883,9 @@ impl App {
         self.create_swap_chain(&physical_device);
         self.create_image_views();
         self.create_render_pass();
-        self.pipeline_layout = Some(self.create_graphics_pipeline());
+        let (pipeline, layout) = self.create_graphics_pipeline();
+        self.graphics_pipeline = Some(pipeline);
+        self.pipeline_layout = Some(layout);
     }
 
     fn render(&self) {
@@ -867,6 +895,10 @@ impl App {
     pub fn shutdown(&self) {
         println!("Shutdown called");
         unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .destroy_pipeline(*self.graphics_pipeline.as_ref().unwrap(), None);
             self.device
                 .as_ref()
                 .unwrap()
