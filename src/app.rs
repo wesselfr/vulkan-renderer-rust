@@ -70,6 +70,7 @@ pub struct App {
     swapchain_image_views: Option<Vec<vk::ImageView>>,
     swapchain_format: Option<vk::Format>,
     swapchain_extent: Option<vk::Extent2D>,
+    swapchain_frame_buffers: Option<Vec<vk::Framebuffer>>,
     render_pass: Option<vk::RenderPass>,
     pipeline_layout: Option<vk::PipelineLayout>,
     graphics_pipeline: Option<vk::Pipeline>,
@@ -93,6 +94,7 @@ impl App {
             swapchain_image_views: None,
             swapchain_format: None,
             swapchain_extent: None,
+            swapchain_frame_buffers: None,
             render_pass: None,
             pipeline_layout: None,
             graphics_pipeline: None,
@@ -796,6 +798,34 @@ impl App {
         (graphics_pipelines[0], pipeline_layout)
     }
 
+    fn create_frame_buffers(&mut self) {
+        self.swapchain_frame_buffers = Some(Vec::new());
+        self.swapchain_frame_buffers
+            .as_mut()
+            .unwrap()
+            .reserve(self.swapchain_image_views.as_ref().unwrap().len());
+
+        for swap_chain_image_view in self.swapchain_image_views.as_ref().unwrap() {
+            let framebuffer_info = vk::FramebufferCreateInfo {
+                render_pass: *self.render_pass.as_ref().unwrap(),
+                attachment_count: 1,
+                p_attachments: swap_chain_image_view,
+                width: self.swapchain_extent.as_ref().unwrap().width,
+                height: self.swapchain_extent.as_ref().unwrap().height,
+                layers: 1,
+                ..Default::default()
+            };
+
+            self.swapchain_frame_buffers.as_mut().unwrap().push(unsafe {
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .create_framebuffer(&framebuffer_info, None)
+                    .expect("Failed to create framebuffer!")
+            })
+        }
+    }
+
     fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
         let indices = Self::find_queue_families(
             self.instance.as_ref().unwrap(),
@@ -886,6 +916,7 @@ impl App {
         let (pipeline, layout) = self.create_graphics_pipeline();
         self.graphics_pipeline = Some(pipeline);
         self.pipeline_layout = Some(layout);
+        self.create_frame_buffers();
     }
 
     fn render(&self) {
@@ -895,6 +926,13 @@ impl App {
     pub fn shutdown(&self) {
         println!("Shutdown called");
         unsafe {
+            for framebuffer in self.swapchain_frame_buffers.as_ref().unwrap() {
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .destroy_framebuffer(*framebuffer, None);
+            }
+
             self.device
                 .as_ref()
                 .unwrap()
