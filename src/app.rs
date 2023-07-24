@@ -999,13 +999,15 @@ impl App {
                 min_depth: 0.0,
                 max_depth: 1.0,
             }];
-            device.cmd_set_viewport(command_buffer, 0, &viewport);
+            // Note: Dynamic viewport disabled at this moment.
+            //device.cmd_set_viewport(command_buffer, 0, &viewport);
 
             let scissor = [vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: *self.swapchain_extent.as_ref().unwrap(),
             }];
-            device.cmd_set_scissor(command_buffer, 0, &scissor);
+            // Note: Dynamic viewport disabled at this moment.
+            //device.cmd_set_scissor(command_buffer, 0, &scissor);
 
             device.cmd_draw(command_buffer, 3, 1, 0, 0);
 
@@ -1037,7 +1039,6 @@ impl App {
         self.create_frame_buffers();
         self.create_command_pool(&indices);
         self.create_command_buffer();
-        self.record_command_buffer(*self.command_buffer.as_ref().unwrap(), 1);
     }
 
     fn render(&self) {
