@@ -75,6 +75,7 @@ pub struct App {
     pipeline_layout: Option<vk::PipelineLayout>,
     graphics_pipeline: Option<vk::Pipeline>,
     command_pool: Option<vk::CommandPool>,
+    command_buffer: Option<vk::CommandBuffer>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -100,6 +101,7 @@ impl App {
             pipeline_layout: None,
             graphics_pipeline: None,
             command_pool: None,
+            command_buffer: None,
             debug_utils_loader: None,
             debug_callback: None,
         }
@@ -923,6 +925,97 @@ impl App {
         }
     }
 
+    fn create_command_buffer(&mut self) {
+        let alloc_info = vk::CommandBufferAllocateInfo {
+            command_pool: *self.command_pool.as_ref().unwrap(),
+            command_buffer_count: 1,
+            level: vk::CommandBufferLevel::PRIMARY,
+            ..Default::default()
+        };
+
+        self.command_buffer = unsafe {
+            Some(
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .allocate_command_buffers(&alloc_info)
+                    .expect("Failed to allocate command buffers")[0],
+            )
+        }
+    }
+
+    fn record_command_buffer(&mut self, command_buffer: vk::CommandBuffer, image_index: usize) {
+        let begin_info = vk::CommandBufferBeginInfo {
+            ..Default::default()
+        };
+
+        unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .begin_command_buffer(command_buffer, &begin_info)
+                .expect("Failed to begin recording command buffer!");
+        }
+
+        let clear_color = [vk::ClearValue {
+            color: vk::ClearColorValue {
+                float32: [0.0, 0.0, 0.0, 1.0],
+            },
+        }];
+
+        let render_pass_info = vk::RenderPassBeginInfo {
+            render_pass: *self.render_pass.as_ref().unwrap(),
+            framebuffer: self.swapchain_frame_buffers.as_ref().unwrap()[image_index],
+            render_area: vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: *self.swapchain_extent.as_ref().unwrap(),
+            },
+            clear_value_count: 1,
+            p_clear_values: clear_color.as_ptr(),
+            ..Default::default()
+        };
+
+        unsafe {
+            let device = self.device.as_ref().unwrap();
+            let command_buffer = *self.command_buffer.as_ref().unwrap();
+
+            device.cmd_begin_render_pass(
+                command_buffer,
+                &render_pass_info,
+                vk::SubpassContents::INLINE,
+            );
+
+            device.cmd_bind_pipeline(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                *self.graphics_pipeline.as_ref().unwrap(),
+            );
+
+            let viewport = [vk::Viewport {
+                x: 0.0,
+                y: 0.0,
+                width: self.swapchain_extent.as_ref().unwrap().width as f32,
+                height: self.swapchain_extent.as_ref().unwrap().height as f32,
+                min_depth: 0.0,
+                max_depth: 1.0,
+            }];
+            device.cmd_set_viewport(command_buffer, 0, &viewport);
+
+            let scissor = [vk::Rect2D {
+                offset: vk::Offset2D { x: 0, y: 0 },
+                extent: *self.swapchain_extent.as_ref().unwrap(),
+            }];
+            device.cmd_set_scissor(command_buffer, 0, &scissor);
+
+            device.cmd_draw(command_buffer, 3, 1, 0, 0);
+
+            device.cmd_end_render_pass(command_buffer);
+            device
+                .end_command_buffer(command_buffer)
+                .expect("Failed to record command buffer!");
+        }
+    }
+
     fn init_vulkan(&mut self, window: &Window) {
         self.entry = Some(Entry::linked());
         self.instance = Some(Self::create_instance(self.entry.as_ref().unwrap(), window));
@@ -943,6 +1036,8 @@ impl App {
         self.pipeline_layout = Some(layout);
         self.create_frame_buffers();
         self.create_command_pool(&indices);
+        self.create_command_buffer();
+        self.record_command_buffer(*self.command_buffer.as_ref().unwrap(), 1);
     }
 
     fn render(&self) {
