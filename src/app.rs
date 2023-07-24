@@ -74,6 +74,7 @@ pub struct App {
     render_pass: Option<vk::RenderPass>,
     pipeline_layout: Option<vk::PipelineLayout>,
     graphics_pipeline: Option<vk::Pipeline>,
+    command_pool: Option<vk::CommandPool>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -98,6 +99,7 @@ impl App {
             render_pass: None,
             pipeline_layout: None,
             graphics_pipeline: None,
+            command_pool: None,
             debug_utils_loader: None,
             debug_callback: None,
         }
@@ -826,7 +828,10 @@ impl App {
         }
     }
 
-    fn create_logical_device(&mut self, physical_device: &vk::PhysicalDevice) {
+    fn create_logical_device(
+        &mut self,
+        physical_device: &vk::PhysicalDevice,
+    ) -> QueueFamiliyIndices {
         let indices = Self::find_queue_families(
             self.instance.as_ref().unwrap(),
             physical_device,
@@ -896,6 +901,26 @@ impl App {
                 .unwrap()
                 .get_device_queue(indices.present_familiy.unwrap(), 0)
         });
+
+        indices
+    }
+
+    fn create_command_pool(&mut self, indices: &QueueFamiliyIndices) {
+        let create_info = vk::CommandPoolCreateInfo {
+            flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
+            queue_family_index: indices.graphics_family.unwrap(),
+            ..Default::default()
+        };
+
+        self.command_pool = unsafe {
+            Some(
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .create_command_pool(&create_info, None)
+                    .expect("Failed to create command pool!"),
+            )
+        }
     }
 
     fn init_vulkan(&mut self, window: &Window) {
@@ -909,7 +934,7 @@ impl App {
         let physical_device = self
             .get_physical_device()
             .expect("Error while getting physical device");
-        self.create_logical_device(&physical_device);
+        let indices = self.create_logical_device(&physical_device);
         self.create_swap_chain(&physical_device);
         self.create_image_views();
         self.create_render_pass();
@@ -917,6 +942,7 @@ impl App {
         self.graphics_pipeline = Some(pipeline);
         self.pipeline_layout = Some(layout);
         self.create_frame_buffers();
+        self.create_command_pool(&indices);
     }
 
     fn render(&self) {
@@ -926,34 +952,23 @@ impl App {
     pub fn shutdown(&self) {
         println!("Shutdown called");
         unsafe {
+            let device = self.device.as_ref().unwrap();
+
+            device.destroy_command_pool(*self.command_pool.as_ref().unwrap(), None);
+
             for framebuffer in self.swapchain_frame_buffers.as_ref().unwrap() {
-                self.device
-                    .as_ref()
-                    .unwrap()
-                    .destroy_framebuffer(*framebuffer, None);
+                device.destroy_framebuffer(*framebuffer, None);
             }
 
-            self.device
-                .as_ref()
-                .unwrap()
-                .destroy_pipeline(*self.graphics_pipeline.as_ref().unwrap(), None);
-            self.device
-                .as_ref()
-                .unwrap()
-                .destroy_pipeline_layout(*self.pipeline_layout.as_ref().unwrap(), None);
-            self.device
-                .as_ref()
-                .unwrap()
-                .destroy_render_pass(*self.render_pass.as_ref().unwrap(), None);
+            device.destroy_pipeline(*self.graphics_pipeline.as_ref().unwrap(), None);
+            device.destroy_pipeline_layout(*self.pipeline_layout.as_ref().unwrap(), None);
+            device.destroy_render_pass(*self.render_pass.as_ref().unwrap(), None);
 
             for image_view in self.swapchain_image_views.as_ref().unwrap() {
-                self.device
-                    .as_ref()
-                    .unwrap()
-                    .destroy_image_view(*image_view, None);
+                device.destroy_image_view(*image_view, None);
             }
 
-            self.device.as_ref().unwrap().destroy_device(None);
+            device.destroy_device(None);
             self.surface_loader
                 .as_ref()
                 .unwrap()
