@@ -33,6 +33,8 @@ use crate::utils::{self, *};
 const WIDTH: i32 = 800;
 const HEIGHT: i32 = 600;
 
+const MAX_FRAMES_IN_FLIGHT: usize = 2;
+
 #[cfg(debug_assertions)]
 const VALIDATION_LAYERS_ENABLED: bool = true;
 #[cfg(not(debug_assertions))]
@@ -75,12 +77,13 @@ pub struct App {
     pipeline_layout: Option<vk::PipelineLayout>,
     graphics_pipeline: Option<vk::Pipeline>,
     command_pool: Option<vk::CommandPool>,
-    command_buffer: Option<vk::CommandBuffer>,
-    image_available: Option<vk::Semaphore>,
-    render_finished: Option<vk::Semaphore>,
-    in_flight: Option<vk::Fence>,
+    command_buffers: Option<Vec<vk::CommandBuffer>>,
+    image_available_semaphores: Option<Vec<vk::Semaphore>>,
+    render_finished_semaphores: Option<Vec<vk::Semaphore>>,
+    in_flight_fences: Option<Vec<vk::Fence>>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
+    frame_index: usize,
 }
 
 impl App {
@@ -104,12 +107,13 @@ impl App {
             pipeline_layout: None,
             graphics_pipeline: None,
             command_pool: None,
-            command_buffer: None,
-            image_available: None,
-            render_finished: None,
-            in_flight: None,
+            command_buffers: None,
+            image_available_semaphores: None,
+            render_finished_semaphores: None,
+            in_flight_fences: None,
             debug_utils_loader: None,
             debug_callback: None,
+            frame_index: 0,
         }
     }
 
@@ -943,21 +947,21 @@ impl App {
         }
     }
 
-    fn create_command_buffer(&mut self) {
+    fn create_command_buffers(&mut self) {
         let alloc_info = vk::CommandBufferAllocateInfo {
             command_pool: *self.command_pool.as_ref().unwrap(),
-            command_buffer_count: 1,
+            command_buffer_count: MAX_FRAMES_IN_FLIGHT as u32,
             level: vk::CommandBufferLevel::PRIMARY,
             ..Default::default()
         };
 
-        self.command_buffer = unsafe {
+        self.command_buffers = unsafe {
             Some(
                 self.device
                     .as_ref()
                     .unwrap()
                     .allocate_command_buffers(&alloc_info)
-                    .expect("Failed to allocate command buffers")[0],
+                    .expect("Failed to allocate command buffers"),
             )
         }
     }
@@ -972,25 +976,38 @@ impl App {
         };
 
         let device = self.device.as_ref().unwrap();
-        self.image_available = unsafe {
-            Some(
-                device
-                    .create_semaphore(&semaphore_info, None)
-                    .expect("Failed to create semaphore!"),
-            )
-        };
-        self.render_finished = unsafe {
-            Some(
-                device
-                    .create_semaphore(&semaphore_info, None)
-                    .expect("Failed to create semaphore!"),
-            )
-        };
-        self.in_flight = unsafe {
-            Some(
-                device
-                    .create_fence(&fence_info, None)
-                    .expect("Failed to create fence!"),
+
+        (
+            self.image_available_semaphores,
+            self.render_finished_semaphores,
+            self.in_flight_fences,
+        ) = unsafe {
+            let mut image_available_semaphores = Vec::new();
+            let mut render_finished_semaphores = Vec::new();
+            let mut in_flight_fences = Vec::new();
+
+            for _ in 0..MAX_FRAMES_IN_FLIGHT {
+                image_available_semaphores.push(
+                    device
+                        .create_semaphore(&semaphore_info, None)
+                        .expect("Failed to create semaphore!"),
+                );
+                render_finished_semaphores.push(
+                    device
+                        .create_semaphore(&semaphore_info, None)
+                        .expect("Failed to create semaphore!"),
+                );
+                in_flight_fences.push(
+                    device
+                        .create_fence(&fence_info, None)
+                        .expect("Failed to create fence!"),
+                );
+            }
+
+            (
+                Some(image_available_semaphores),
+                Some(render_finished_semaphores),
+                Some(in_flight_fences),
             )
         };
     }
@@ -1028,7 +1045,7 @@ impl App {
 
         unsafe {
             let device = self.device.as_ref().unwrap();
-            let command_buffer = *self.command_buffer.as_ref().unwrap();
+            //let command_buffer = *self.command_buffers.as_ref().unwrap();
 
             device.cmd_begin_render_pass(
                 command_buffer,
@@ -1089,7 +1106,7 @@ impl App {
         self.pipeline_layout = Some(layout);
         self.create_frame_buffers();
         self.create_command_pool(&indices);
-        self.create_command_buffer();
+        self.create_command_buffers();
         self.create_sync_objects();
     }
 
@@ -1097,26 +1114,28 @@ impl App {
         // Do cool stuff here.
         unsafe {
             let device = self.device.as_ref().unwrap();
-            let fences = [self.in_flight.unwrap()];
+            let fences = [self.in_flight_fences.as_ref().unwrap()[self.frame_index]];
 
             device.wait_for_fences(&fences, true, u64::MAX).unwrap();
 
-            let (frame_index, _is_sub_optimal) = self
+            let (image_index, _is_sub_optimal) = self
                 .swapchain_loader
                 .as_ref()
                 .unwrap()
                 .acquire_next_image(
                     *self.swapchain.as_ref().unwrap(),
                     u64::MAX,
-                    self.image_available.unwrap(),
+                    self.image_available_semaphores.as_ref().unwrap()[self.frame_index],
                     vk::Fence::null(),
                 )
                 .expect("Failed to acquire next image.");
 
-            println!("Frame index: {}", frame_index);
+            println!("Frame index: {} - Image: {}", self.frame_index, image_index);
 
-            let wait_semaphores = [self.image_available.unwrap()];
-            let signal_semaphores = [self.render_finished.unwrap()];
+            let wait_semaphores =
+                [self.image_available_semaphores.as_ref().unwrap()[self.frame_index]];
+            let signal_semaphores =
+                [self.render_finished_semaphores.as_ref().unwrap()[self.frame_index]];
 
             device
                 .reset_fences(&fences)
@@ -1124,14 +1143,14 @@ impl App {
 
             device
                 .reset_command_buffer(
-                    *self.command_buffer.as_ref().unwrap(),
+                    self.command_buffers.as_ref().unwrap()[self.frame_index],
                     vk::CommandBufferResetFlags::empty(),
                 )
                 .expect("Failed to reset command buffer!");
 
             self.record_command_buffer(
-                *self.command_buffer.as_ref().unwrap(),
-                frame_index as usize,
+                self.command_buffers.as_ref().unwrap()[self.frame_index],
+                image_index as usize,
             );
 
             let submit_info = [vk::SubmitInfo {
@@ -1139,7 +1158,8 @@ impl App {
                 p_wait_semaphores: wait_semaphores.as_ptr(),
                 p_wait_dst_stage_mask: [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT].as_ptr(),
                 command_buffer_count: 1,
-                p_command_buffers: [*self.command_buffer.as_ref().unwrap()].as_ptr(),
+                p_command_buffers: [self.command_buffers.as_ref().unwrap()[self.frame_index]]
+                    .as_ptr(),
                 signal_semaphore_count: 1,
                 p_signal_semaphores: signal_semaphores.as_ptr(),
                 ..Default::default()
@@ -1151,7 +1171,7 @@ impl App {
                 .queue_submit(
                     *self.graphics_queue.as_ref().unwrap(),
                     &submit_info,
-                    *self.in_flight.as_ref().unwrap(),
+                    self.in_flight_fences.as_ref().unwrap()[self.frame_index],
                 )
                 .expect("Failed to submit draw command buffer!");
 
@@ -1161,7 +1181,7 @@ impl App {
                 p_wait_semaphores: wait_semaphores.as_ptr(),
                 swapchain_count: 1,
                 p_swapchains: swapchains.as_ptr(),
-                p_image_indices: &frame_index,
+                p_image_indices: &image_index,
                 ..Default::default()
             };
 
@@ -1170,6 +1190,8 @@ impl App {
                 .unwrap()
                 .queue_present(*self.present_queue.as_ref().unwrap(), &present_info)
                 .expect("Error while submitting present queue buffer.");
+
+            self.frame_index = (self.frame_index + 1) % MAX_FRAMES_IN_FLIGHT;
         }
     }
 
@@ -1178,9 +1200,13 @@ impl App {
         unsafe {
             let device = self.device.as_ref().unwrap();
 
-            device.destroy_semaphore(*self.image_available.as_ref().unwrap(), None);
-            device.destroy_semaphore(*self.render_finished.as_ref().unwrap(), None);
-            device.destroy_fence(*self.in_flight.as_ref().unwrap(), None);
+            for i in 0..MAX_FRAMES_IN_FLIGHT {
+                device
+                    .destroy_semaphore(self.image_available_semaphores.as_ref().unwrap()[i], None);
+                device
+                    .destroy_semaphore(self.render_finished_semaphores.as_ref().unwrap()[i], None);
+                device.destroy_fence(self.in_flight_fences.as_ref().unwrap()[i], None);
+            }
 
             device.destroy_command_pool(*self.command_pool.as_ref().unwrap(), None);
 
