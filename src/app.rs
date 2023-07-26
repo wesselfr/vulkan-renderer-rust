@@ -1045,7 +1045,6 @@ impl App {
 
         unsafe {
             let device = self.device.as_ref().unwrap();
-            //let command_buffer = *self.command_buffers.as_ref().unwrap();
 
             device.cmd_begin_render_pass(
                 command_buffer,
@@ -1116,7 +1115,9 @@ impl App {
             let device = self.device.as_ref().unwrap();
             let fences = [self.in_flight_fences.as_ref().unwrap()[self.frame_index]];
 
-            device.wait_for_fences(&fences, true, u64::MAX).unwrap();
+            device
+                .wait_for_fences(&fences, true, u64::MAX)
+                .expect("Failed to wait for Fence!");
 
             let (image_index, _is_sub_optimal) = self
                 .swapchain_loader
@@ -1178,7 +1179,7 @@ impl App {
             let swapchains = [*self.swapchain.as_ref().unwrap()];
             let present_info = vk::PresentInfoKHR {
                 wait_semaphore_count: 1,
-                p_wait_semaphores: wait_semaphores.as_ptr(),
+                p_wait_semaphores: signal_semaphores.as_ptr(),
                 swapchain_count: 1,
                 p_swapchains: swapchains.as_ptr(),
                 p_image_indices: &image_index,
