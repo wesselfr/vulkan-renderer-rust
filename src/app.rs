@@ -1201,6 +1201,11 @@ impl App {
         unsafe {
             let device = self.device.as_ref().unwrap();
 
+            // Wait till sync is complete
+            device
+                .device_wait_idle()
+                .expect("Failed to wait for device to become idle.");
+
             for i in 0..MAX_FRAMES_IN_FLIGHT {
                 device
                     .destroy_semaphore(self.image_available_semaphores.as_ref().unwrap()[i], None);
