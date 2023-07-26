@@ -76,6 +76,9 @@ pub struct App {
     graphics_pipeline: Option<vk::Pipeline>,
     command_pool: Option<vk::CommandPool>,
     command_buffer: Option<vk::CommandBuffer>,
+    image_available: Option<vk::Semaphore>,
+    render_finished: Option<vk::Semaphore>,
+    in_flight: Option<vk::Fence>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
 }
@@ -102,6 +105,9 @@ impl App {
             graphics_pipeline: None,
             command_pool: None,
             command_buffer: None,
+            image_available: None,
+            render_finished: None,
+            in_flight: None,
             debug_utils_loader: None,
             debug_callback: None,
         }
@@ -647,6 +653,16 @@ impl App {
             ..Default::default()
         };
 
+        let dependency = [vk::SubpassDependency {
+            src_subpass: vk::SUBPASS_EXTERNAL,
+            dst_subpass: 0,
+            src_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            src_access_mask: vk::AccessFlags::empty(),
+            dst_stage_mask: vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT,
+            dst_access_mask: vk::AccessFlags::COLOR_ATTACHMENT_WRITE,
+            ..Default::default()
+        }];
+
         let render_pass_attachments = [color_attachment];
 
         let render_pass_info = vk::RenderPassCreateInfo {
@@ -654,6 +670,8 @@ impl App {
             p_attachments: render_pass_attachments.as_ptr(),
             subpass_count: 1,
             p_subpasses: &subpass,
+            dependency_count: 1,
+            p_dependencies: dependency.as_ptr(),
             ..Default::default()
         };
 
@@ -944,6 +962,39 @@ impl App {
         }
     }
 
+    fn create_sync_objects(&mut self) {
+        let semaphore_info = vk::SemaphoreCreateInfo {
+            ..Default::default()
+        };
+        let fence_info = vk::FenceCreateInfo {
+            flags: vk::FenceCreateFlags::SIGNALED,
+            ..Default::default()
+        };
+
+        let device = self.device.as_ref().unwrap();
+        self.image_available = unsafe {
+            Some(
+                device
+                    .create_semaphore(&semaphore_info, None)
+                    .expect("Failed to create semaphore!"),
+            )
+        };
+        self.render_finished = unsafe {
+            Some(
+                device
+                    .create_semaphore(&semaphore_info, None)
+                    .expect("Failed to create semaphore!"),
+            )
+        };
+        self.in_flight = unsafe {
+            Some(
+                device
+                    .create_fence(&fence_info, None)
+                    .expect("Failed to create fence!"),
+            )
+        };
+    }
+
     fn record_command_buffer(&mut self, command_buffer: vk::CommandBuffer, image_index: usize) {
         let begin_info = vk::CommandBufferBeginInfo {
             ..Default::default()
@@ -991,7 +1042,7 @@ impl App {
                 *self.graphics_pipeline.as_ref().unwrap(),
             );
 
-            let viewport = [vk::Viewport {
+            let _viewport = [vk::Viewport {
                 x: 0.0,
                 y: 0.0,
                 width: self.swapchain_extent.as_ref().unwrap().width as f32,
@@ -1002,7 +1053,7 @@ impl App {
             // Note: Dynamic viewport disabled at this moment.
             //device.cmd_set_viewport(command_buffer, 0, &viewport);
 
-            let scissor = [vk::Rect2D {
+            let _scissor = [vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: *self.swapchain_extent.as_ref().unwrap(),
             }];
@@ -1039,16 +1090,97 @@ impl App {
         self.create_frame_buffers();
         self.create_command_pool(&indices);
         self.create_command_buffer();
+        self.create_sync_objects();
     }
 
-    fn render(&self) {
+    fn render(&mut self) {
         // Do cool stuff here.
+        unsafe {
+            let device = self.device.as_ref().unwrap();
+            let fences = [self.in_flight.unwrap()];
+
+            device.wait_for_fences(&fences, true, u64::MAX).unwrap();
+
+            let (frame_index, _is_sub_optimal) = self
+                .swapchain_loader
+                .as_ref()
+                .unwrap()
+                .acquire_next_image(
+                    *self.swapchain.as_ref().unwrap(),
+                    u64::MAX,
+                    self.image_available.unwrap(),
+                    vk::Fence::null(),
+                )
+                .expect("Failed to acquire next image.");
+
+            println!("Frame index: {}", frame_index);
+
+            let wait_semaphores = [self.image_available.unwrap()];
+            let signal_semaphores = [self.render_finished.unwrap()];
+
+            device
+                .reset_fences(&fences)
+                .expect("Failed to reset fence!");
+
+            device
+                .reset_command_buffer(
+                    *self.command_buffer.as_ref().unwrap(),
+                    vk::CommandBufferResetFlags::empty(),
+                )
+                .expect("Failed to reset command buffer!");
+
+            self.record_command_buffer(
+                *self.command_buffer.as_ref().unwrap(),
+                frame_index as usize,
+            );
+
+            let submit_info = [vk::SubmitInfo {
+                wait_semaphore_count: 1,
+                p_wait_semaphores: wait_semaphores.as_ptr(),
+                p_wait_dst_stage_mask: [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT].as_ptr(),
+                command_buffer_count: 1,
+                p_command_buffers: [*self.command_buffer.as_ref().unwrap()].as_ptr(),
+                signal_semaphore_count: 1,
+                p_signal_semaphores: signal_semaphores.as_ptr(),
+                ..Default::default()
+            }];
+
+            self.device
+                .as_ref()
+                .unwrap()
+                .queue_submit(
+                    *self.graphics_queue.as_ref().unwrap(),
+                    &submit_info,
+                    *self.in_flight.as_ref().unwrap(),
+                )
+                .expect("Failed to submit draw command buffer!");
+
+            let swapchains = [*self.swapchain.as_ref().unwrap()];
+            let present_info = vk::PresentInfoKHR {
+                wait_semaphore_count: 1,
+                p_wait_semaphores: wait_semaphores.as_ptr(),
+                swapchain_count: 1,
+                p_swapchains: swapchains.as_ptr(),
+                p_image_indices: &frame_index,
+                ..Default::default()
+            };
+
+            self.swapchain_loader
+                .as_ref()
+                .unwrap()
+                .queue_present(*self.present_queue.as_ref().unwrap(), &present_info)
+                .expect("Error while submitting present queue buffer.");
+        }
     }
 
     pub fn shutdown(&self) {
         println!("Shutdown called");
         unsafe {
             let device = self.device.as_ref().unwrap();
+
+            device.destroy_semaphore(*self.image_available.as_ref().unwrap(), None);
+            device.destroy_semaphore(*self.render_finished.as_ref().unwrap(), None);
+            device.destroy_fence(*self.in_flight.as_ref().unwrap(), None);
 
             device.destroy_command_pool(*self.command_pool.as_ref().unwrap(), None);
 
