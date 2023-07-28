@@ -1085,6 +1085,40 @@ impl App {
         }
     }
 
+    fn cleanup_swap_chain(&mut self) {
+        let device = self.device.as_ref().unwrap();
+
+        unsafe {
+            for frame_buffer in self.swapchain_frame_buffers.as_ref().unwrap() {
+                device.destroy_framebuffer(*frame_buffer, None);
+            }
+            for image_view in self.swapchain_image_views.as_ref().unwrap() {
+                device.destroy_image_view(*image_view, None);
+            }
+            self.swapchain_loader
+                .as_ref()
+                .unwrap()
+                .destroy_swapchain(*self.swapchain.as_ref().unwrap(), None);
+        }
+    }
+
+    fn recreate_swap_chain(&mut self) {
+        unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .device_wait_idle()
+                .expect("Error while waiting for device idle!");
+        }
+
+        self.cleanup_swap_chain();
+
+        let physical_device = self.get_physical_device().unwrap();
+        self.create_swap_chain(&physical_device);
+        self.create_image_views();
+        self.create_frame_buffers();
+    }
+
     fn init_vulkan(&mut self, window: &Window) {
         self.entry = Some(Entry::linked());
         self.instance = Some(Self::create_instance(self.entry.as_ref().unwrap(), window));
@@ -1196,15 +1230,11 @@ impl App {
         }
     }
 
-    pub fn shutdown(&self) {
+    pub fn shutdown(&mut self) {
         println!("Shutdown called");
         unsafe {
+            self.cleanup_swap_chain();
             let device = self.device.as_ref().unwrap();
-
-            // Wait till sync is complete
-            device
-                .device_wait_idle()
-                .expect("Failed to wait for device to become idle.");
 
             for i in 0..MAX_FRAMES_IN_FLIGHT {
                 device
@@ -1216,17 +1246,9 @@ impl App {
 
             device.destroy_command_pool(*self.command_pool.as_ref().unwrap(), None);
 
-            for framebuffer in self.swapchain_frame_buffers.as_ref().unwrap() {
-                device.destroy_framebuffer(*framebuffer, None);
-            }
-
             device.destroy_pipeline(*self.graphics_pipeline.as_ref().unwrap(), None);
             device.destroy_pipeline_layout(*self.pipeline_layout.as_ref().unwrap(), None);
             device.destroy_render_pass(*self.render_pass.as_ref().unwrap(), None);
-
-            for image_view in self.swapchain_image_views.as_ref().unwrap() {
-                device.destroy_image_view(*image_view, None);
-            }
 
             device.destroy_device(None);
             self.surface_loader
