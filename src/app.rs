@@ -791,6 +791,14 @@ impl App {
                 .expect("Failed to create pipeline layout")
         };
 
+        let dynamic_states = [vk::DynamicState::VIEWPORT, vk::DynamicState::SCISSOR];
+
+        let pipeline_dynamic_state_info = vk::PipelineDynamicStateCreateInfo {
+            dynamic_state_count: dynamic_states.len() as u32,
+            p_dynamic_states: dynamic_states.as_ptr(),
+            ..Default::default()
+        };
+
         let pipeline_create_infos = [vk::GraphicsPipelineCreateInfo {
             stage_count: shader_stages.len() as u32,
             p_stages: shader_stages.as_ptr(),
@@ -800,7 +808,7 @@ impl App {
             p_rasterization_state: &rasterizer_state_create_info,
             //p_multisample_state: TODO
             p_color_blend_state: &color_blending,
-            //p_dynamic_state: TODO
+            p_dynamic_state: &pipeline_dynamic_state_info,
             layout: pipeline_layout,
             render_pass: *self.render_pass.as_ref().unwrap(),
             subpass: 0,
@@ -1063,7 +1071,7 @@ impl App {
                 *self.graphics_pipeline.as_ref().unwrap(),
             );
 
-            let _viewport = [vk::Viewport {
+            let viewport = [vk::Viewport {
                 x: 0.0,
                 y: 0.0,
                 width: self.swapchain_extent.as_ref().unwrap().width as f32,
@@ -1071,15 +1079,13 @@ impl App {
                 min_depth: 0.0,
                 max_depth: 1.0,
             }];
-            // Note: Dynamic viewport disabled at this moment.
-            //device.cmd_set_viewport(command_buffer, 0, &viewport);
+            device.cmd_set_viewport(command_buffer, 0, &viewport);
 
-            let _scissor = [vk::Rect2D {
+            let scissor = [vk::Rect2D {
                 offset: vk::Offset2D { x: 0, y: 0 },
                 extent: *self.swapchain_extent.as_ref().unwrap(),
             }];
-            // Note: Dynamic viewport disabled at this moment.
-            //device.cmd_set_scissor(command_buffer, 0, &scissor);
+            device.cmd_set_scissor(command_buffer, 0, &scissor);
 
             device.cmd_draw(command_buffer, 3, 1, 0, 0);
 
