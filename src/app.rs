@@ -1146,14 +1146,15 @@ impl App {
     fn render(&mut self) {
         // Do cool stuff here.
         unsafe {
-            let device = self.device.as_ref().unwrap();
             let fences = [self.in_flight_fences.as_ref().unwrap()[self.frame_index]];
 
-            device
+            self.device
+                .as_ref()
+                .unwrap()
                 .wait_for_fences(&fences, true, u64::MAX)
                 .expect("Failed to wait for Fence!");
 
-            let (image_index, _is_sub_optimal) = self
+            let (image_index, is_sub_optimal) = self
                 .swapchain_loader
                 .as_ref()
                 .unwrap()
@@ -1164,6 +1165,12 @@ impl App {
                     vk::Fence::null(),
                 )
                 .expect("Failed to acquire next image.");
+
+            if is_sub_optimal {
+                return self.recreate_swap_chain();
+            }
+
+            let device = self.device.as_ref().unwrap();
 
             println!("Frame index: {} - Image: {}", self.frame_index, image_index);
 
@@ -1220,11 +1227,21 @@ impl App {
                 ..Default::default()
             };
 
-            self.swapchain_loader
+            let result = self
+                .swapchain_loader
                 .as_ref()
                 .unwrap()
-                .queue_present(*self.present_queue.as_ref().unwrap(), &present_info)
-                .expect("Error while submitting present queue buffer.");
+                .queue_present(*self.present_queue.as_ref().unwrap(), &present_info);
+
+            match result {
+                Ok(_) => {},
+                Err(vk_result) => {
+                    match vk_result {
+                        vk::Result::ERROR_OUT_OF_DATE_KHR | vk::Result::SUBOPTIMAL_KHR => self.recreate_swap_chain(),
+                        _ => panic!("Failed to execute queue present."),
+                    }
+                },
+            }
 
             self.frame_index = (self.frame_index + 1) % MAX_FRAMES_IN_FLIGHT;
         }
@@ -1233,6 +1250,12 @@ impl App {
     pub fn shutdown(&mut self) {
         println!("Shutdown called");
         unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .device_wait_idle()
+                .expect("Error while waiting for device idle!");
+
             self.cleanup_swap_chain();
             let device = self.device.as_ref().unwrap();
 
