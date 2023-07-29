@@ -1131,7 +1131,7 @@ impl App {
 
         self.physical_device = Some(
             self.get_physical_device()
-            .expect("Error while getting physical device"),
+                .expect("Error while getting physical device"),
         );
         let physical_device = *self.physical_device.as_ref().unwrap();
 
@@ -1176,8 +1176,6 @@ impl App {
             }
 
             let device = self.device.as_ref().unwrap();
-
-            println!("Frame index: {} - Image: {}", self.frame_index, image_index);
 
             let wait_semaphores =
                 [self.image_available_semaphores.as_ref().unwrap()[self.frame_index]];
