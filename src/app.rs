@@ -62,6 +62,7 @@ pub struct App {
     entry: Option<Entry>,
     instance: Option<Instance>,
     device: Option<ash::Device>,
+    physical_device: Option<vk::PhysicalDevice>,
     graphics_queue: Option<vk::Queue>,
     present_queue: Option<vk::Queue>,
     surface: Option<vk::SurfaceKHR>,
@@ -92,6 +93,7 @@ impl App {
             entry: None,
             instance: None,
             device: None,
+            physical_device: None,
             graphics_queue: None,
             present_queue: None,
             surface: None,
@@ -1113,7 +1115,7 @@ impl App {
 
         self.cleanup_swap_chain();
 
-        let physical_device = self.get_physical_device().unwrap();
+        let physical_device = *self.physical_device.as_ref().unwrap();
         self.create_swap_chain(&physical_device);
         self.create_image_views();
         self.create_frame_buffers();
@@ -1127,9 +1129,12 @@ impl App {
         self.surface = Some(surface);
         self.surface_loader = Some(surface_loader);
 
-        let physical_device = self
-            .get_physical_device()
-            .expect("Error while getting physical device");
+        self.physical_device = Some(
+            self.get_physical_device()
+            .expect("Error while getting physical device"),
+        );
+        let physical_device = *self.physical_device.as_ref().unwrap();
+
         let indices = self.create_logical_device(&physical_device);
         self.create_swap_chain(&physical_device);
         self.create_image_views();
@@ -1234,12 +1239,12 @@ impl App {
                 .queue_present(*self.present_queue.as_ref().unwrap(), &present_info);
 
             match result {
-                Ok(_) => {},
-                Err(vk_result) => {
-                    match vk_result {
-                        vk::Result::ERROR_OUT_OF_DATE_KHR | vk::Result::SUBOPTIMAL_KHR => self.recreate_swap_chain(),
-                        _ => panic!("Failed to execute queue present."),
+                Ok(_) => {}
+                Err(vk_result) => match vk_result {
+                    vk::Result::ERROR_OUT_OF_DATE_KHR | vk::Result::SUBOPTIMAL_KHR => {
+                        self.recreate_swap_chain()
                     }
+                    _ => panic!("Failed to execute queue present."),
                 },
             }
 
