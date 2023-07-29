@@ -132,9 +132,12 @@ impl App {
                     window_id,
                 } if window_id == window.id() => *control_flow = ControlFlow::Exit,
                 Event::MainEventsCleared => {
-                    // Update renderer
-                    self.render();
-                    window.request_redraw();
+                    // We don't render when minimized
+                    if window.inner_size().width != 0 && window.inner_size().height != 0 {
+                        // Update renderer
+                        self.render();
+                        window.request_redraw();
+                    }
                 }
                 _ => (),
             }
@@ -1176,6 +1179,8 @@ impl App {
             }
 
             let device = self.device.as_ref().unwrap();
+
+            println!("Rendering");
 
             let wait_semaphores =
                 [self.image_available_semaphores.as_ref().unwrap()[self.frame_index]];
