@@ -15,6 +15,7 @@ use ash::{
     Entry,
 };
 pub use ash::{Device, Instance};
+use glam::{Vec2, Vec3};
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -22,6 +23,8 @@ use winit::{
     platform::windows::WindowExtWindows,
     window::{Window, WindowBuilder},
 };
+
+use memoffset::offset_of;
 
 #[cfg(target_os = "windows")]
 use ash::extensions::khr::Win32Surface;
@@ -57,6 +60,64 @@ struct SwapChainSupportDetails {
     formats: Vec<vk::SurfaceFormatKHR>,
     present_modes: Vec<vk::PresentModeKHR>,
 }
+
+struct Vertex {
+    pos: Vec2,
+    color: Vec3,
+}
+
+impl Vertex {
+    fn get_binding_description() -> vk::VertexInputBindingDescription {
+        vk::VertexInputBindingDescription {
+            binding: 0,
+            stride: std::mem::size_of::<Self>() as u32,
+            input_rate: vk::VertexInputRate::VERTEX,
+        }
+    }
+    fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+        [
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 0,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: offset_of!(Self, pos) as u32,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 1,
+                format: vk::Format::R32G32B32_SFLOAT,
+                offset: offset_of!(Self, color) as u32,
+            },
+        ]
+    }
+}
+
+const VERTICES: [Vertex; 3] = [
+    Vertex {
+        pos: Vec2 { x: 0.0, y: -0.5 },
+        color: Vec3 {
+            x: 1.0,
+            y: 0.0,
+            z: 0.0,
+        },
+    },
+    Vertex {
+        pos: Vec2 { x: 0.5, y: 0.5 },
+        color: Vec3 {
+            x: 0.0,
+            y: 1.0,
+            z: 0.0,
+        },
+    },
+    Vertex {
+        pos: Vec2 { x: -0.5, y: 0.5 },
+        color: Vec3 {
+            x: 0.0,
+            y: 0.0,
+            z: 1.0,
+        },
+    },
+];
 
 pub struct App {
     entry: Option<Entry>,
@@ -721,9 +782,14 @@ impl App {
             },
         ];
 
+        let binding_description = Vertex::get_binding_description();
+        let attribute_descriptions = Vertex::get_attribute_descriptions();
+
         let vertex_input_info = vk::PipelineVertexInputStateCreateInfo {
-            vertex_binding_description_count: 0,
-            vertex_attribute_description_count: 0,
+            vertex_binding_description_count: 1,
+            vertex_attribute_description_count: attribute_descriptions.len() as u32,
+            p_vertex_binding_descriptions: &binding_description,
+            p_vertex_attribute_descriptions: attribute_descriptions.as_ptr(),
             ..Default::default()
         };
 
