@@ -143,6 +143,8 @@ pub struct App {
     image_available_semaphores: Option<Vec<vk::Semaphore>>,
     render_finished_semaphores: Option<Vec<vk::Semaphore>>,
     in_flight_fences: Option<Vec<vk::Fence>>,
+    vertex_buffer: Option<vk::Buffer>,
+    vertex_buffer_memory: Option<vk::DeviceMemory>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
     frame_index: usize,
@@ -174,6 +176,8 @@ impl App {
             image_available_semaphores: None,
             render_finished_semaphores: None,
             in_flight_fences: None,
+            vertex_buffer: None,
+            vertex_buffer_memory: None,
             debug_utils_loader: None,
             debug_callback: None,
             frame_index: 0,
@@ -489,6 +493,22 @@ impl App {
         }
 
         found_extensions.len() == REQUIRED_DEVICE_EXTENSIONS.len()
+    }
+
+    fn find_memory_type(&mut self, type_filter: u32, properties: vk::MemoryPropertyFlags) -> u32 {
+        let memory_properties = unsafe {
+            self.instance
+                .as_ref()
+                .unwrap()
+                .get_physical_device_memory_properties(*self.physical_device.as_ref().unwrap())
+        };
+
+        for (i, memory_type) in memory_properties.memory_types.iter().enumerate() {
+            if (type_filter & (1 << i)) > 0 && memory_type.property_flags.contains(properties) {
+                return i as u32;
+            }
+        }
+        panic!("Failed to find suitable memory type!");
     }
 
     fn query_swapchain_support(
@@ -1008,6 +1028,83 @@ impl App {
         indices
     }
 
+    fn create_vertex_buffer(&mut self) {
+        let create_info = vk::BufferCreateInfo {
+            size: (std::mem::size_of::<Vertex>() * VERTICES.len()) as u64,
+            usage: vk::BufferUsageFlags::VERTEX_BUFFER,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+
+            ..Default::default()
+        };
+
+        self.vertex_buffer = unsafe {
+            Some(
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .create_buffer(&create_info, None)
+                    .expect("Failed to create vertex buffer!"),
+            )
+        };
+
+        let memory_requirements = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .get_buffer_memory_requirements(*self.vertex_buffer.as_ref().unwrap())
+        };
+
+        let alloc_info = vk::MemoryAllocateInfo {
+            allocation_size: memory_requirements.size,
+            memory_type_index: self.find_memory_type(
+                memory_requirements.memory_type_bits,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            ),
+            ..Default::default()
+        };
+
+        self.vertex_buffer_memory = unsafe {
+            Some(
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .allocate_memory(&alloc_info, None)
+                    .expect("Failed to allocate vertex buffer memory!"),
+            )
+        };
+
+        unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .bind_buffer_memory(
+                    *self.vertex_buffer.as_ref().unwrap(),
+                    *self.vertex_buffer_memory.as_ref().unwrap(),
+                    0,
+                )
+                .expect("Failed to bind vertex buffer!");
+
+            let data_ptr = self
+                .device
+                .as_ref()
+                .unwrap()
+                .map_memory(
+                    *self.vertex_buffer_memory.as_ref().unwrap(),
+                    0,
+                    create_info.size,
+                    vk::MemoryMapFlags::empty(),
+                )
+                .expect("Failed to map memory!") as *mut Vertex;
+
+            data_ptr.copy_from_nonoverlapping(VERTICES.as_ptr(), VERTICES.len());
+
+            self.device
+                .as_ref()
+                .unwrap()
+                .unmap_memory(*self.vertex_buffer_memory.as_ref().unwrap());
+        }
+    }
+
     fn create_command_pool(&mut self, indices: &QueueFamiliyIndices) {
         let create_info = vk::CommandPoolCreateInfo {
             flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
@@ -1153,6 +1250,10 @@ impl App {
             }];
             device.cmd_set_scissor(command_buffer, 0, &scissor);
 
+            let vertex_buffers = [*self.vertex_buffer.as_ref().unwrap()];
+            let offsets = [0];
+            device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
+
             device.cmd_draw(command_buffer, 3, 1, 0, 0);
 
             device.cmd_end_render_pass(command_buffer);
@@ -1219,6 +1320,7 @@ impl App {
         self.pipeline_layout = Some(layout);
         self.create_frame_buffers();
         self.create_command_pool(&indices);
+        self.create_vertex_buffer();
         self.create_command_buffers();
         self.create_sync_objects();
     }
@@ -1338,6 +1440,9 @@ impl App {
 
             self.cleanup_swap_chain();
             let device = self.device.as_ref().unwrap();
+
+            device.destroy_buffer(*self.vertex_buffer.as_ref().unwrap(), None);
+            device.free_memory(*self.vertex_buffer_memory.as_ref().unwrap(), None);
 
             for i in 0..MAX_FRAMES_IN_FLIGHT {
                 device
