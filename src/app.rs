@@ -148,8 +148,7 @@ pub struct App {
     image_available_semaphores: Option<Vec<vk::Semaphore>>,
     render_finished_semaphores: Option<Vec<vk::Semaphore>>,
     in_flight_fences: Option<Vec<vk::Fence>>,
-    vertex_buffer: Option<vk::Buffer>,
-    vertex_buffer_memory: Option<vk::DeviceMemory>,
+    vertex_buffer: Option<Buffer>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
     frame_index: usize,
@@ -182,7 +181,6 @@ impl App {
             render_finished_semaphores: None,
             in_flight_fences: None,
             vertex_buffer: None,
-            vertex_buffer_memory: None,
             debug_utils_loader: None,
             debug_callback: None,
             frame_index: 0,
@@ -1037,16 +1035,9 @@ impl App {
     /// Todo: vkAllocate calls are limited and discouraged, improve memory management later!
     fn create_buffer(
         &mut self,
-        size: vk::DeviceSize,
-        usage: vk::BufferUsageFlags,
+        create_info: vk::BufferCreateInfo,
         properties: vk::MemoryPropertyFlags,
     ) -> Buffer {
-        let create_info = vk::BufferCreateInfo {
-            size: size,
-            usage: usage,
-            ..Default::default()
-        };
-
         let buffer = unsafe {
             self.device
                 .as_ref()
@@ -1077,8 +1068,12 @@ impl App {
                 .expect("Failed to allocate buffer memory!")
         };
 
-        unsafe{
-            self.device.as_ref().unwrap().bind_buffer_memory(buffer, memory, 0).expect("Failed to bind buffer memory!");
+        unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .bind_buffer_memory(buffer, memory, 0)
+                .expect("Failed to bind buffer memory!");
         }
 
         Buffer {
@@ -1087,68 +1082,34 @@ impl App {
         }
     }
 
+    fn destroy_buffer(&self, buffer: &Buffer) {
+        let device: &Device = self.device.as_ref().unwrap();
+        unsafe {
+            device.destroy_buffer(buffer.buffer, None);
+            device.free_memory(buffer.memory, None);
+        }
+    }
+
     fn create_vertex_buffer(&mut self) {
         let create_info = vk::BufferCreateInfo {
             size: (std::mem::size_of::<Vertex>() * VERTICES.len()) as u64,
             usage: vk::BufferUsageFlags::VERTEX_BUFFER,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
-
             ..Default::default()
         };
 
-        self.vertex_buffer = unsafe {
-            Some(
-                self.device
-                    .as_ref()
-                    .unwrap()
-                    .create_buffer(&create_info, None)
-                    .expect("Failed to create vertex buffer!"),
-            )
-        };
-
-        let memory_requirements = unsafe {
-            self.device
-                .as_ref()
-                .unwrap()
-                .get_buffer_memory_requirements(*self.vertex_buffer.as_ref().unwrap())
-        };
-
-        let alloc_info = vk::MemoryAllocateInfo {
-            allocation_size: memory_requirements.size,
-            memory_type_index: self.find_memory_type(
-                memory_requirements.memory_type_bits,
-                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-            ),
-            ..Default::default()
-        };
-
-        self.vertex_buffer_memory = unsafe {
-            Some(
-                self.device
-                    .as_ref()
-                    .unwrap()
-                    .allocate_memory(&alloc_info, None)
-                    .expect("Failed to allocate vertex buffer memory!"),
-            )
-        };
+        self.vertex_buffer = Some(self.create_buffer(
+            create_info,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        ));
 
         unsafe {
-            self.device
-                .as_ref()
-                .unwrap()
-                .bind_buffer_memory(
-                    *self.vertex_buffer.as_ref().unwrap(),
-                    *self.vertex_buffer_memory.as_ref().unwrap(),
-                    0,
-                )
-                .expect("Failed to bind vertex buffer!");
-
             let data_ptr = self
                 .device
                 .as_ref()
                 .unwrap()
                 .map_memory(
-                    *self.vertex_buffer_memory.as_ref().unwrap(),
+                    self.vertex_buffer.as_ref().unwrap().memory,
                     0,
                     create_info.size,
                     vk::MemoryMapFlags::empty(),
@@ -1160,7 +1121,7 @@ impl App {
             self.device
                 .as_ref()
                 .unwrap()
-                .unmap_memory(*self.vertex_buffer_memory.as_ref().unwrap());
+                .unmap_memory(self.vertex_buffer.as_ref().unwrap().memory);
         }
     }
 
@@ -1309,7 +1270,7 @@ impl App {
             }];
             device.cmd_set_scissor(command_buffer, 0, &scissor);
 
-            let vertex_buffers = [*self.vertex_buffer.as_ref().unwrap()];
+            let vertex_buffers = [self.vertex_buffer.as_ref().unwrap().buffer];
             let offsets = [0];
             device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
 
@@ -1498,10 +1459,9 @@ impl App {
                 .expect("Error while waiting for device idle!");
 
             self.cleanup_swap_chain();
-            let device = self.device.as_ref().unwrap();
+            self.destroy_buffer(self.vertex_buffer.as_ref().unwrap());
 
-            device.destroy_buffer(*self.vertex_buffer.as_ref().unwrap(), None);
-            device.free_memory(*self.vertex_buffer_memory.as_ref().unwrap(), None);
+            let device = self.device.as_ref().unwrap();
 
             for i in 0..MAX_FRAMES_IN_FLIGHT {
                 device
