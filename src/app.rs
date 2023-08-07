@@ -1082,12 +1082,7 @@ impl App {
         }
     }
 
-    fn copy_buffer(
-        &mut self,
-        src: Buffer,
-        dst: Buffer,
-        size: vk::DeviceSize,
-    ) -> Result<(), String> {
+    fn copy_buffer(&self, src: &Buffer, dst: &Buffer, size: vk::DeviceSize) -> Result<(), String> {
         let alloc_info = vk::CommandBufferAllocateInfo {
             level: vk::CommandBufferLevel::PRIMARY,
             command_pool: *self.command_pool.as_ref().unwrap(),
@@ -1155,17 +1150,17 @@ impl App {
     }
 
     fn create_vertex_buffer(&mut self) {
-        let create_info = vk::BufferCreateInfo {
+        let staging_buffer_create_info = vk::BufferCreateInfo {
             size: (std::mem::size_of::<Vertex>() * VERTICES.len()) as u64,
-            usage: vk::BufferUsageFlags::VERTEX_BUFFER,
+            usage: vk::BufferUsageFlags::TRANSFER_SRC,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
         };
 
-        self.vertex_buffer = Some(self.create_buffer(
-            create_info,
+        let staging_buffer = self.create_buffer(
+            staging_buffer_create_info,
             vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
-        ));
+        );
 
         unsafe {
             let data_ptr = self
@@ -1173,9 +1168,9 @@ impl App {
                 .as_ref()
                 .unwrap()
                 .map_memory(
-                    self.vertex_buffer.as_ref().unwrap().memory,
+                    staging_buffer.memory,
                     0,
-                    create_info.size,
+                    staging_buffer_create_info.size,
                     vk::MemoryMapFlags::empty(),
                 )
                 .expect("Failed to map memory!") as *mut Vertex;
@@ -1185,8 +1180,26 @@ impl App {
             self.device
                 .as_ref()
                 .unwrap()
-                .unmap_memory(self.vertex_buffer.as_ref().unwrap().memory);
+                .unmap_memory(staging_buffer.memory);
         }
+
+        let vertex_buffer_create_info = vk::BufferCreateInfo {
+            size: (std::mem::size_of::<Vertex>() * VERTICES.len()) as u64,
+            usage: vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+
+        self.vertex_buffer = Some(self.create_buffer(
+            vertex_buffer_create_info,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        ));
+
+        let size = (std::mem::size_of::<Vertex>() * VERTICES.len()) as u64;
+        self.copy_buffer(&staging_buffer, self.vertex_buffer.as_ref().unwrap(), size)
+            .expect("Error while copying buffer");
+
+        self.destroy_buffer(&staging_buffer);
     }
 
     fn create_command_pool(&mut self, indices: &QueueFamiliyIndices) {
