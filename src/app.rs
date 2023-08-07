@@ -61,6 +61,11 @@ struct SwapChainSupportDetails {
     present_modes: Vec<vk::PresentModeKHR>,
 }
 
+struct Buffer {
+    buffer: vk::Buffer,
+    memory: vk::DeviceMemory,
+}
+
 struct Vertex {
     pos: Vec2,
     color: Vec3,
@@ -1026,6 +1031,60 @@ impl App {
         });
 
         indices
+    }
+
+    /// Creates a vkBuffer and allocates device memory for it.
+    /// Todo: vkAllocate calls are limited and discouraged, improve memory management later!
+    fn create_buffer(
+        &mut self,
+        size: vk::DeviceSize,
+        usage: vk::BufferUsageFlags,
+        properties: vk::MemoryPropertyFlags,
+    ) -> Buffer {
+        let create_info = vk::BufferCreateInfo {
+            size: size,
+            usage: usage,
+            ..Default::default()
+        };
+
+        let buffer = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_buffer(&create_info, None)
+                .expect("Failed to create buffer!")
+        };
+
+        let memory_requirements = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .get_buffer_memory_requirements(buffer)
+        };
+
+        let alloc_info = vk::MemoryAllocateInfo {
+            allocation_size: memory_requirements.size,
+            memory_type_index: self
+                .find_memory_type(memory_requirements.memory_type_bits, properties),
+            ..Default::default()
+        };
+
+        let memory = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .allocate_memory(&alloc_info, None)
+                .expect("Failed to allocate buffer memory!")
+        };
+
+        unsafe{
+            self.device.as_ref().unwrap().bind_buffer_memory(buffer, memory, 0).expect("Failed to bind buffer memory!");
+        }
+
+        Buffer {
+            buffer: buffer,
+            memory: memory,
+        }
     }
 
     fn create_vertex_buffer(&mut self) {
