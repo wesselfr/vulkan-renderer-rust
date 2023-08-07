@@ -1082,6 +1082,70 @@ impl App {
         }
     }
 
+    fn copy_buffer(
+        &mut self,
+        src: Buffer,
+        dst: Buffer,
+        size: vk::DeviceSize,
+    ) -> Result<(), String> {
+        let alloc_info = vk::CommandBufferAllocateInfo {
+            level: vk::CommandBufferLevel::PRIMARY,
+            command_pool: *self.command_pool.as_ref().unwrap(),
+            command_buffer_count: 1,
+            ..Default::default()
+        };
+
+        let command_buffer = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .allocate_command_buffers(&alloc_info)
+                .expect("Failed to allocate command buffers")
+        };
+
+        let begin_info = vk::CommandBufferBeginInfo {
+            flags: vk::CommandBufferUsageFlags::ONE_TIME_SUBMIT,
+            ..Default::default()
+        };
+
+        unsafe {
+            let device = self.device.as_ref().unwrap();
+            device
+                .begin_command_buffer(command_buffer[0], &begin_info)
+                .expect("Failed to begin command buffer.");
+
+            let copy_region = vk::BufferCopy {
+                size: size,
+                ..Default::default()
+            };
+            device.cmd_copy_buffer(command_buffer[0], src.buffer, dst.buffer, &[copy_region]);
+
+            device
+                .end_command_buffer(command_buffer[0])
+                .expect("Failed to end command buffer");
+
+            let submit_info = vk::SubmitInfo {
+                command_buffer_count: 1,
+                p_command_buffers: command_buffer.as_ptr(),
+                ..Default::default()
+            };
+            device
+                .queue_submit(
+                    *self.graphics_queue.as_ref().unwrap(),
+                    &[submit_info],
+                    vk::Fence::null(),
+                )
+                .expect("Failed to submit queue");
+            device
+                .queue_wait_idle(*self.graphics_queue.as_ref().unwrap())
+                .unwrap();
+
+            device.free_command_buffers(*self.command_pool.as_ref().unwrap(), &command_buffer);
+        }
+
+        Ok(())
+    }
+
     fn destroy_buffer(&self, buffer: &Buffer) {
         let device: &Device = self.device.as_ref().unwrap();
         unsafe {
