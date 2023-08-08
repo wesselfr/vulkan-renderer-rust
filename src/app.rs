@@ -97,9 +97,9 @@ impl Vertex {
     }
 }
 
-const VERTICES: [Vertex; 3] = [
+const VERTICES: [Vertex; 4] = [
     Vertex {
-        pos: Vec2 { x: 0.0, y: -0.5 },
+        pos: Vec2 { x: -0.5, y: -0.5 },
         color: Vec3 {
             x: 1.0,
             y: 0.0,
@@ -107,7 +107,7 @@ const VERTICES: [Vertex; 3] = [
         },
     },
     Vertex {
-        pos: Vec2 { x: 0.5, y: 0.5 },
+        pos: Vec2 { x: 0.5, y: -0.5 },
         color: Vec3 {
             x: 0.0,
             y: 1.0,
@@ -115,14 +115,24 @@ const VERTICES: [Vertex; 3] = [
         },
     },
     Vertex {
-        pos: Vec2 { x: -0.5, y: 0.5 },
+        pos: Vec2 { x: 0.5, y: 0.5 },
         color: Vec3 {
             x: 0.0,
             y: 0.0,
             z: 1.0,
         },
     },
+    Vertex {
+        pos: Vec2 { x: -0.5, y: 0.5 },
+        color: Vec3 {
+            x: 1.0,
+            y: 1.0,
+            z: 1.0,
+        },
+    },
 ];
+
+const INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
 pub struct App {
     entry: Option<Entry>,
@@ -149,6 +159,7 @@ pub struct App {
     render_finished_semaphores: Option<Vec<vk::Semaphore>>,
     in_flight_fences: Option<Vec<vk::Fence>>,
     vertex_buffer: Option<Buffer>,
+    index_buffer: Option<Buffer>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
     frame_index: usize,
@@ -181,6 +192,7 @@ impl App {
             render_finished_semaphores: None,
             in_flight_fences: None,
             vertex_buffer: None,
+            index_buffer: None,
             debug_utils_loader: None,
             debug_callback: None,
             frame_index: 0,
@@ -1202,6 +1214,59 @@ impl App {
         self.destroy_buffer(&staging_buffer);
     }
 
+    fn create_index_buffer(&mut self) {
+        let staging_buffer_create_info = vk::BufferCreateInfo {
+            size: (std::mem::size_of::<u16>() * INDICES.len()) as u64,
+            usage: vk::BufferUsageFlags::TRANSFER_SRC,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+
+        let staging_buffer = self.create_buffer(
+            staging_buffer_create_info,
+            vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+        );
+
+        unsafe {
+            let data_ptr = self
+                .device
+                .as_ref()
+                .unwrap()
+                .map_memory(
+                    staging_buffer.memory,
+                    0,
+                    staging_buffer_create_info.size,
+                    vk::MemoryMapFlags::empty(),
+                )
+                .expect("Failed to map memory!") as *mut u16;
+
+            data_ptr.copy_from_nonoverlapping(INDICES.as_ptr(), INDICES.len());
+
+            self.device
+                .as_ref()
+                .unwrap()
+                .unmap_memory(staging_buffer.memory);
+        }
+
+        let index_buffer_create_info = vk::BufferCreateInfo {
+            size: (std::mem::size_of::<u16>() * INDICES.len()) as u64,
+            usage: vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
+            sharing_mode: vk::SharingMode::EXCLUSIVE,
+            ..Default::default()
+        };
+
+        self.index_buffer = Some(self.create_buffer(
+            index_buffer_create_info,
+            vk::MemoryPropertyFlags::DEVICE_LOCAL,
+        ));
+
+        let size = (std::mem::size_of::<u16>() * INDICES.len()) as u64;
+        self.copy_buffer(&staging_buffer, self.index_buffer.as_ref().unwrap(), size)
+            .expect("Error while copying buffer");
+
+        self.destroy_buffer(&staging_buffer);
+    }
+
     fn create_command_pool(&mut self, indices: &QueueFamiliyIndices) {
         let create_info = vk::CommandPoolCreateInfo {
             flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
@@ -1351,7 +1416,14 @@ impl App {
             let offsets = [0];
             device.cmd_bind_vertex_buffers(command_buffer, 0, &vertex_buffers, &offsets);
 
-            device.cmd_draw(command_buffer, 3, 1, 0, 0);
+            device.cmd_bind_index_buffer(
+                command_buffer,
+                self.index_buffer.as_ref().unwrap().buffer,
+                0,
+                vk::IndexType::UINT16,
+            );
+
+            device.cmd_draw_indexed(command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
 
             device.cmd_end_render_pass(command_buffer);
             device
@@ -1418,6 +1490,7 @@ impl App {
         self.create_frame_buffers();
         self.create_command_pool(&indices);
         self.create_vertex_buffer();
+        self.create_index_buffer();
         self.create_command_buffers();
         self.create_sync_objects();
     }
@@ -1536,6 +1609,7 @@ impl App {
                 .expect("Error while waiting for device idle!");
 
             self.cleanup_swap_chain();
+            self.destroy_buffer(self.index_buffer.as_ref().unwrap());
             self.destroy_buffer(self.vertex_buffer.as_ref().unwrap());
 
             let device = self.device.as_ref().unwrap();
