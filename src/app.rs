@@ -1,6 +1,7 @@
 use core::ffi::c_void;
 use std::{
     ffi::{CStr, CString},
+    mem::size_of,
     os::raw::c_char,
     path::Path,
     ptr,
@@ -134,6 +135,12 @@ const VERTICES: [Vertex; 4] = [
 
 const INDICES: [u16; 6] = [0, 1, 2, 2, 3, 0];
 
+struct UniformBufferObject {
+    model: glam::Mat4,
+    view: glam::Mat4,
+    proj: glam::Mat4,
+}
+
 pub struct App {
     entry: Option<Entry>,
     instance: Option<Instance>,
@@ -151,6 +158,7 @@ pub struct App {
     swapchain_extent: Option<vk::Extent2D>,
     swapchain_frame_buffers: Option<Vec<vk::Framebuffer>>,
     render_pass: Option<vk::RenderPass>,
+    descriptor_set_layout: Option<vk::DescriptorSetLayout>,
     pipeline_layout: Option<vk::PipelineLayout>,
     graphics_pipeline: Option<vk::Pipeline>,
     command_pool: Option<vk::CommandPool>,
@@ -160,9 +168,12 @@ pub struct App {
     in_flight_fences: Option<Vec<vk::Fence>>,
     vertex_buffer: Option<Buffer>,
     index_buffer: Option<Buffer>,
+    uniform_buffers: Option<Vec<Buffer>>,
+    uniform_buffers_mapped: Option<Vec<*mut c_void>>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
     frame_index: usize,
+    time: f32,
 }
 
 impl App {
@@ -184,6 +195,7 @@ impl App {
             swapchain_extent: None,
             swapchain_frame_buffers: None,
             render_pass: None,
+            descriptor_set_layout: None,
             pipeline_layout: None,
             graphics_pipeline: None,
             command_pool: None,
@@ -193,9 +205,12 @@ impl App {
             in_flight_fences: None,
             vertex_buffer: None,
             index_buffer: None,
+            uniform_buffers: None,
+            uniform_buffers_mapped: None,
             debug_utils_loader: None,
             debug_callback: None,
             frame_index: 0,
+            time: 0.0,
         }
     }
 
@@ -881,6 +896,8 @@ impl App {
         };
 
         let pipeline_layout_info = vk::PipelineLayoutCreateInfo {
+            set_layout_count: 1,
+            p_set_layouts: self.descriptor_set_layout.as_ref().unwrap(),
             ..Default::default()
         };
 
@@ -936,6 +953,34 @@ impl App {
         }
 
         (graphics_pipelines[0], pipeline_layout)
+    }
+
+    fn create_descriptor_set_layout(&mut self) {
+        let ubo_layout_binding = vk::DescriptorSetLayoutBinding {
+            binding: 0,
+            descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::VERTEX,
+            ..Default::default()
+        };
+
+        let bindings = [ubo_layout_binding];
+
+        let layout_info = vk::DescriptorSetLayoutCreateInfo {
+            binding_count: bindings.len() as u32,
+            p_bindings: bindings.as_ptr(),
+            ..Default::default()
+        };
+
+        self.descriptor_set_layout = unsafe {
+            Some(
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .create_descriptor_set_layout(&layout_info, None)
+                    .expect("Failed to create descriptor set layout!"),
+            )
+        }
     }
 
     fn create_frame_buffers(&mut self) {
@@ -1267,6 +1312,47 @@ impl App {
         self.destroy_buffer(&staging_buffer);
     }
 
+    fn create_uniform_buffers(&mut self) {
+        let buffer_size = size_of::<UniformBufferObject>();
+
+        let mut uniform_buffers = Vec::new();
+        let mut uniform_buffers_mapped = Vec::new();
+
+        uniform_buffers.reserve(MAX_FRAMES_IN_FLIGHT);
+        uniform_buffers_mapped.reserve(MAX_FRAMES_IN_FLIGHT);
+
+        for _ in 0..MAX_FRAMES_IN_FLIGHT {
+            let create_info = vk::BufferCreateInfo {
+                size: buffer_size as u64,
+                usage: vk::BufferUsageFlags::UNIFORM_BUFFER,
+                sharing_mode: vk::SharingMode::EXCLUSIVE,
+                ..Default::default()
+            };
+
+            let buffer = self.create_buffer(
+                create_info,
+                vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
+            );
+
+            uniform_buffers_mapped.push(unsafe {
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .map_memory(
+                        buffer.memory,
+                        0,
+                        buffer_size as u64,
+                        vk::MemoryMapFlags::empty(),
+                    )
+                    .expect("Failed to map memory!")
+            });
+            uniform_buffers.push(buffer);
+        }
+
+        self.uniform_buffers = Some(uniform_buffers);
+        self.uniform_buffers_mapped = Some(uniform_buffers_mapped);
+    }
+
     fn create_command_pool(&mut self, indices: &QueueFamiliyIndices) {
         let create_info = vk::CommandPoolCreateInfo {
             flags: vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER,
@@ -1484,6 +1570,7 @@ impl App {
         self.create_swap_chain(&physical_device);
         self.create_image_views();
         self.create_render_pass();
+        self.create_descriptor_set_layout();
         let (pipeline, layout) = self.create_graphics_pipeline();
         self.graphics_pipeline = Some(pipeline);
         self.pipeline_layout = Some(layout);
@@ -1491,6 +1578,7 @@ impl App {
         self.create_command_pool(&indices);
         self.create_vertex_buffer();
         self.create_index_buffer();
+        self.create_uniform_buffers();
         self.create_command_buffers();
         self.create_sync_objects();
     }
@@ -1541,6 +1629,8 @@ impl App {
                     vk::CommandBufferResetFlags::empty(),
                 )
                 .expect("Failed to reset command buffer!");
+
+            self.update_uniform_buffer(self.frame_index);
 
             self.record_command_buffer(
                 self.command_buffers.as_ref().unwrap()[self.frame_index],
@@ -1599,6 +1689,45 @@ impl App {
         }
     }
 
+    pub fn update_uniform_buffer(&mut self, frame_index: usize) {
+        self.time += 0.001;
+
+        let ubo = [UniformBufferObject {
+            model: glam::Mat4::from_rotation_z(self.time * 90.0_f32.to_radians()),
+            view: glam::Mat4::look_at_rh(
+                Vec3 {
+                    x: 2.0,
+                    y: 2.0,
+                    z: 2.0,
+                },
+                Vec3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 0.0,
+                },
+                Vec3 {
+                    x: 0.0,
+                    y: 0.0,
+                    z: 1.0,
+                },
+            ),
+            proj: glam::Mat4::perspective_rh(
+                45.0_f32.to_radians(),
+                self.swapchain_extent.as_ref().unwrap().width as f32
+                    / self.swapchain_extent.as_ref().unwrap().height as f32,
+                0.1,
+                100.0,
+            ),
+        }];
+
+        let size = std::mem::size_of::<UniformBufferObject>();
+
+        unsafe {
+            self.uniform_buffers_mapped.as_ref().unwrap()[self.frame_index]
+                .copy_from_nonoverlapping(ubo.as_ptr() as *mut c_void, ubo.len());
+        }
+    }
+
     pub fn shutdown(&mut self) {
         println!("Shutdown called");
         unsafe {
@@ -1609,10 +1738,18 @@ impl App {
                 .expect("Error while waiting for device idle!");
 
             self.cleanup_swap_chain();
-            self.destroy_buffer(self.index_buffer.as_ref().unwrap());
-            self.destroy_buffer(self.vertex_buffer.as_ref().unwrap());
 
             let device = self.device.as_ref().unwrap();
+
+            for i in 0..MAX_FRAMES_IN_FLIGHT {
+                self.destroy_buffer(&self.uniform_buffers.as_ref().unwrap()[i]);
+            }
+
+            device
+                .destroy_descriptor_set_layout(*self.descriptor_set_layout.as_ref().unwrap(), None);
+
+            self.destroy_buffer(self.index_buffer.as_ref().unwrap());
+            self.destroy_buffer(self.vertex_buffer.as_ref().unwrap());
 
             for i in 0..MAX_FRAMES_IN_FLIGHT {
                 device
