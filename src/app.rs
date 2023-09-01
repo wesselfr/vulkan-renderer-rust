@@ -169,7 +169,9 @@ pub struct App {
     vertex_buffer: Option<Buffer>,
     index_buffer: Option<Buffer>,
     uniform_buffers: Option<Vec<Buffer>>,
-    uniform_buffers_mapped: Option<Vec<*mut c_void>>,
+    uniform_buffers_mapped: Option<Vec<vk::DeviceMemory>>,
+    descriptor_pool: Option<vk::DescriptorPool>,
+    descriptor_sets: Option<Vec<vk::DescriptorSet>>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
     frame_index: usize,
@@ -207,6 +209,8 @@ impl App {
             index_buffer: None,
             uniform_buffers: None,
             uniform_buffers_mapped: None,
+            descriptor_pool: None,
+            descriptor_sets: None,
             debug_utils_loader: None,
             debug_callback: None,
             frame_index: 0,
@@ -1334,7 +1338,7 @@ impl App {
                 vk::MemoryPropertyFlags::HOST_VISIBLE | vk::MemoryPropertyFlags::HOST_COHERENT,
             );
 
-            uniform_buffers_mapped.push(unsafe {
+            unsafe {
                 self.device
                     .as_ref()
                     .unwrap()
@@ -1345,12 +1349,88 @@ impl App {
                         vk::MemoryMapFlags::empty(),
                     )
                     .expect("Failed to map memory!")
-            });
+            };
+
+            uniform_buffers_mapped.push(buffer.memory);
             uniform_buffers.push(buffer);
         }
 
         self.uniform_buffers = Some(uniform_buffers);
         self.uniform_buffers_mapped = Some(uniform_buffers_mapped);
+    }
+
+    fn create_descriptor_pool(&mut self) {
+        let pool_size = [vk::DescriptorPoolSize {
+            descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
+            ..Default::default()
+        }];
+
+        let pool_info = vk::DescriptorPoolCreateInfo {
+            pool_size_count: 1,
+            p_pool_sizes: pool_size.as_ptr(),
+            max_sets: MAX_FRAMES_IN_FLIGHT as u32,
+            ..Default::default()
+        };
+
+        self.descriptor_pool = unsafe {
+            Some(
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .create_descriptor_pool(&pool_info, None)
+                    .expect("Failed to create descriptor pool!"),
+            )
+        };
+    }
+
+    fn create_descriptor_sets(&mut self) {
+        let mut layouts: Vec<vk::DescriptorSetLayout> = vec![];
+        for _ in 0..self.swapchain_images.as_ref().unwrap().len() {
+            layouts.push(*self.descriptor_set_layout.as_ref().unwrap());
+        }
+
+        let alloc_info = vk::DescriptorSetAllocateInfo {
+            descriptor_pool: *self.descriptor_pool.as_ref().unwrap(),
+            descriptor_set_count: MAX_FRAMES_IN_FLIGHT as u32,
+            p_set_layouts: layouts.as_ptr(),
+            ..Default::default()
+        };
+
+        let descriptor_sets = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .allocate_descriptor_sets(&alloc_info)
+                .expect("Failed to create descriptor sets!")
+        };
+
+        self.descriptor_sets = Some(descriptor_sets);
+
+        for i in 0..MAX_FRAMES_IN_FLIGHT {
+            let buffer_info = vk::DescriptorBufferInfo {
+                buffer: self.uniform_buffers.as_ref().unwrap()[0].buffer,
+                offset: 0,
+                range: std::mem::size_of::<UniformBufferObject>() as u64,
+                ..Default::default()
+            };
+
+            let descriptor_write = vk::WriteDescriptorSet {
+                dst_set: self.descriptor_sets.as_ref().unwrap()[i],
+                dst_binding: 0,
+                dst_array_element: 0,
+                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: 1,
+                p_buffer_info: &buffer_info,
+                ..Default::default()
+            };
+
+            unsafe {
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .update_descriptor_sets(&[descriptor_write], &[])
+            }
+        }
     }
 
     fn create_command_pool(&mut self, indices: &QueueFamiliyIndices) {
@@ -1509,6 +1589,14 @@ impl App {
                 vk::IndexType::UINT16,
             );
 
+            device.cmd_bind_descriptor_sets(
+                command_buffer,
+                vk::PipelineBindPoint::GRAPHICS,
+                *self.pipeline_layout.as_ref().unwrap(),
+                0,
+                &[self.descriptor_sets.as_ref().unwrap()[self.frame_index]],
+                &[],
+            );
             device.cmd_draw_indexed(command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
 
             device.cmd_end_render_pass(command_buffer);
@@ -1579,6 +1667,8 @@ impl App {
         self.create_vertex_buffer();
         self.create_index_buffer();
         self.create_uniform_buffers();
+        self.create_descriptor_pool();
+        self.create_descriptor_sets();
         self.create_command_buffers();
         self.create_sync_objects();
     }
@@ -1723,8 +1813,21 @@ impl App {
         let size = std::mem::size_of::<UniformBufferObject>();
 
         unsafe {
-            self.uniform_buffers_mapped.as_ref().unwrap()[self.frame_index]
-                .copy_from_nonoverlapping(ubo.as_ptr() as *mut c_void, ubo.len());
+            let data_ptr =
+                self.device
+                    .as_ref()
+                    .unwrap()
+                    .map_memory(
+                        self.uniform_buffers.as_ref().unwrap()[frame_index].memory,
+                        0,
+                        size as u64,
+                        vk::MemoryMapFlags::empty(),
+                    )
+                    .expect("Failed to map memory!") as *mut UniformBufferObject;
+
+            data_ptr.copy_from_nonoverlapping(ubo.as_ptr().into(), ubo.len());
+
+            self.device.as_ref().unwrap().unmap_memory(self.uniform_buffers.as_ref().unwrap()[self.frame_index].memory);
         }
     }
 
@@ -1744,6 +1847,8 @@ impl App {
             for i in 0..MAX_FRAMES_IN_FLIGHT {
                 self.destroy_buffer(&self.uniform_buffers.as_ref().unwrap()[i]);
             }
+
+            device.destroy_descriptor_pool(*self.descriptor_pool.as_ref().unwrap(), None);
 
             device
                 .destroy_descriptor_set_layout(*self.descriptor_set_layout.as_ref().unwrap(), None);
