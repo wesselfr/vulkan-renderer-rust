@@ -660,7 +660,7 @@ impl App {
             self.surface.as_ref().unwrap(),
             self.surface_loader.as_ref().unwrap(),
         );
-        let queue_family_indices = vec![
+        let queue_family_indices = [
             indices.graphics_family.unwrap(),
             indices.present_familiy.unwrap(),
         ];
@@ -1144,10 +1144,7 @@ impl App {
                 .expect("Failed to bind buffer memory!");
         }
 
-        Buffer {
-            buffer: buffer,
-            memory: memory,
-        }
+        Buffer { buffer, memory }
     }
 
     fn copy_buffer(&self, src: &Buffer, dst: &Buffer, size: vk::DeviceSize) -> Result<(), String> {
@@ -1178,7 +1175,7 @@ impl App {
                 .expect("Failed to begin command buffer.");
 
             let copy_region = vk::BufferCopy {
-                size: size,
+                size,
                 ..Default::default()
             };
             device.cmd_copy_buffer(command_buffer[0], src.buffer, dst.buffer, &[copy_region]);
@@ -1418,7 +1415,6 @@ impl App {
                 buffer: self.uniform_buffers.as_ref().unwrap()[0].buffer,
                 offset: 0,
                 range: std::mem::size_of::<UniformBufferObject>() as u64,
-                ..Default::default()
             };
 
             let descriptor_write = vk::WriteDescriptorSet {
@@ -1832,7 +1828,7 @@ impl App {
                     )
                     .expect("Failed to map memory!") as *mut UniformBufferObject;
 
-            data_ptr.copy_from_nonoverlapping(ubo.as_ptr().into(), ubo.len());
+            data_ptr.copy_from_nonoverlapping(ubo.as_ptr(), ubo.len());
 
             self.device
                 .as_ref()
