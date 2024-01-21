@@ -5,6 +5,7 @@ use std::{
     os::raw::c_char,
     path::Path,
     ptr,
+    time::Instant,
 };
 
 use ash::{
@@ -175,6 +176,7 @@ pub struct App {
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
     frame_index: usize,
+    delta_time: f32,
     time: f32,
 }
 
@@ -214,6 +216,7 @@ impl App {
             debug_utils_loader: None,
             debug_callback: None,
             frame_index: 0,
+            delta_time: 0.0,
             time: 0.0,
         }
     }
@@ -233,12 +236,16 @@ impl App {
                 Event::MainEventsCleared => {
                     // We don't render when minimized
                     if window.inner_size().width != 0 && window.inner_size().height != 0 {
+                        let now = Instant::now();
+
                         // Update renderer
                         self.render();
                         window.request_redraw();
+
+                        self.delta_time = now.elapsed().as_secs_f32();
                     }
                 }
-                _ => {},
+                _ => {}
             }
         });
     }
@@ -1702,7 +1709,7 @@ impl App {
 
             let device = self.device.as_ref().unwrap();
 
-            println!("Rendering");
+            println!("Rendering: {} ms", self.delta_time * 1000.0);
 
             let wait_semaphores =
                 [self.image_available_semaphores.as_ref().unwrap()[self.frame_index]];
@@ -1780,7 +1787,7 @@ impl App {
     }
 
     pub fn update_uniform_buffer(&mut self, frame_index: usize) {
-        self.time += 0.001;
+        self.time += self.delta_time;
 
         let ubo = [UniformBufferObject {
             model: glam::Mat4::from_rotation_z(self.time * 90.0_f32.to_radians()),
@@ -1827,7 +1834,10 @@ impl App {
 
             data_ptr.copy_from_nonoverlapping(ubo.as_ptr().into(), ubo.len());
 
-            self.device.as_ref().unwrap().unmap_memory(self.uniform_buffers.as_ref().unwrap()[self.frame_index].memory);
+            self.device
+                .as_ref()
+                .unwrap()
+                .unmap_memory(self.uniform_buffers.as_ref().unwrap()[self.frame_index].memory);
         }
     }
 
