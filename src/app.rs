@@ -175,6 +175,7 @@ pub struct App {
     uniform_buffers: Option<Vec<Buffer>>,
     uniform_buffers_mapped: Option<Vec<vk::DeviceMemory>>,
     image_textures: Option<Vec<(vk::Image, vk::DeviceMemory)>>,
+    texture_image_view: Option<vk::ImageView>,
     descriptor_pool: Option<vk::DescriptorPool>,
     descriptor_sets: Option<Vec<vk::DescriptorSet>>,
     debug_utils_loader: Option<DebugUtils>,
@@ -216,6 +217,7 @@ impl App {
             uniform_buffers: None,
             uniform_buffers_mapped: None,
             image_textures: None,
+            texture_image_view: None,
             descriptor_pool: None,
             descriptor_sets: None,
             debug_utils_loader: None,
@@ -712,7 +714,33 @@ impl App {
         self.swapchain_format = Some(surface_format.format);
     }
 
-    fn create_image_views(&mut self) {
+    fn create_image_view(&self, image: vk::Image, format: vk::Format) -> vk::ImageView {
+        let view_info = vk::ImageViewCreateInfo {
+            image,
+            view_type: vk::ImageViewType::TYPE_2D,
+            format,
+            subresource_range: vk::ImageSubresourceRange {
+                aspect_mask: vk::ImageAspectFlags::COLOR,
+                base_mip_level: 0,
+                level_count: 1,
+                base_array_layer: 0,
+                layer_count: 1,
+            },
+            ..Default::default()
+        };
+
+        let image_view = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_image_view(&view_info, None)
+                .expect("Failed to create image view!")
+        };
+
+        image_view
+    }
+
+    fn create_swapchain_image_views(&mut self) {
         self.swapchain_image_views = Some(Vec::new());
         self.swapchain_image_views
             .as_mut()
@@ -720,27 +748,7 @@ impl App {
             .reserve(self.swapchain_images.as_ref().unwrap().len());
 
         for image in self.swapchain_images.as_ref().unwrap() {
-            let create_info = vk::ImageViewCreateInfo {
-                image: *image,
-                view_type: vk::ImageViewType::TYPE_2D,
-                format: *self.swapchain_format.as_ref().unwrap(),
-                subresource_range: vk::ImageSubresourceRange {
-                    aspect_mask: vk::ImageAspectFlags::COLOR,
-                    base_mip_level: 0,
-                    level_count: 1,
-                    base_array_layer: 0,
-                    layer_count: 1,
-                },
-                ..Default::default()
-            };
-
-            let image_view = unsafe {
-                self.device
-                    .as_ref()
-                    .unwrap()
-                    .create_image_view(&create_info, None)
-                    .expect("Failed to create image views!")
-            };
+            let image_view = self.create_image_view(*image, self.swapchain_format.unwrap());
             self.swapchain_image_views
                 .as_mut()
                 .unwrap()
@@ -1482,6 +1490,10 @@ impl App {
         }
     }
 
+    fn create_texture_image_view(&mut self, image: vk::Image) -> vk::ImageView {
+        self.create_image_view(image, vk::Format::R8G8B8A8_SRGB)
+    }
+
     fn create_vertex_buffer(&mut self) {
         let staging_buffer_create_info = vk::BufferCreateInfo {
             size: (std::mem::size_of::<Vertex>() * VERTICES.len()) as u64,
@@ -1908,7 +1920,7 @@ impl App {
 
         let physical_device = *self.physical_device.as_ref().unwrap();
         self.create_swap_chain(&physical_device);
-        self.create_image_views();
+        self.create_swapchain_image_views();
         self.create_frame_buffers();
     }
 
@@ -1928,7 +1940,7 @@ impl App {
 
         let indices = self.create_logical_device(&physical_device);
         self.create_swap_chain(&physical_device);
-        self.create_image_views();
+        self.create_swapchain_image_views();
         self.create_render_pass();
         self.create_descriptor_set_layout();
         let (pipeline, layout) = self.create_graphics_pipeline();
@@ -1937,6 +1949,8 @@ impl App {
         self.create_frame_buffers();
         self.create_command_pool(&indices);
         self.image_textures = Some(vec![self.create_texture_image(Path::new(TEXTURE_PATH))]);
+        self.texture_image_view =
+            Some(self.create_texture_image_view(self.image_textures.as_ref().unwrap()[0].0));
         self.create_vertex_buffer();
         self.create_index_buffer();
         self.create_uniform_buffers();
@@ -2122,6 +2136,8 @@ impl App {
             self.cleanup_swap_chain();
 
             let device = self.device.as_ref().unwrap();
+
+            device.destroy_image_view(self.texture_image_view.unwrap(), None);
 
             for i in 0..MAX_FRAMES_IN_FLIGHT {
                 self.destroy_buffer(&self.uniform_buffers.as_ref().unwrap()[i]);
