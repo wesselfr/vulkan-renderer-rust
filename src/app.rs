@@ -19,6 +19,7 @@ use ash::{
 pub use ash::{Device, Instance};
 use glam::{Vec2, Vec3};
 use image::{EncodableLayout, GenericImageView};
+use tobj::*;
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -39,7 +40,8 @@ use crate::utils::{self, *};
 const WIDTH: i32 = 800;
 const HEIGHT: i32 = 600;
 
-const TEXTURE_PATH: &'static str = "assets/textures/texture.jpg";
+const MODEL_PATH: &'static str = "assets/viking_room/viking_room.obj";
+const TEXTURE_PATH: &'static str = "assets/viking_room/viking_room.png";
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
@@ -109,119 +111,119 @@ impl Vertex {
     }
 }
 
-const VERTICES: [Vertex; 8] = [
-    // First Quad
-    Vertex {
-        pos: Vec3 {
-            x: -0.5,
-            y: -0.5,
-            z: 0.0,
-        },
-        color: Vec3 {
-            x: 1.0,
-            y: 0.0,
-            z: 0.0,
-        },
-        tex_coord: Vec2 { x: 1.0, y: 0.0 },
-    },
-    Vertex {
-        pos: Vec3 {
-            x: 0.5,
-            y: -0.5,
-            z: 0.0,
-        },
-        color: Vec3 {
-            x: 0.0,
-            y: 1.0,
-            z: 0.0,
-        },
-        tex_coord: Vec2 { x: 0.0, y: 0.0 },
-    },
-    Vertex {
-        pos: Vec3 {
-            x: 0.5,
-            y: 0.5,
-            z: 0.0,
-        },
-        color: Vec3 {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-        tex_coord: Vec2 { x: 0.0, y: 1.0 },
-    },
-    Vertex {
-        pos: Vec3 {
-            x: -0.5,
-            y: 0.5,
-            z: 0.0,
-        },
-        color: Vec3 {
-            x: 1.0,
-            y: 1.0,
-            z: 1.0,
-        },
-        tex_coord: Vec2 { x: 1.0, y: 1.0 },
-    },
-    // Second Quad
-    Vertex {
-        pos: Vec3 {
-            x: -0.5,
-            y: -0.5,
-            z: -0.5,
-        },
-        color: Vec3 {
-            x: 1.0,
-            y: 0.0,
-            z: 0.0,
-        },
-        tex_coord: Vec2 { x: 1.0, y: 0.0 },
-    },
-    Vertex {
-        pos: Vec3 {
-            x: 0.5,
-            y: -0.5,
-            z: -0.5,
-        },
-        color: Vec3 {
-            x: 0.0,
-            y: 1.0,
-            z: 0.0,
-        },
-        tex_coord: Vec2 { x: 0.0, y: 0.0 },
-    },
-    Vertex {
-        pos: Vec3 {
-            x: 0.5,
-            y: 0.5,
-            z: -0.5,
-        },
-        color: Vec3 {
-            x: 0.0,
-            y: 0.0,
-            z: 1.0,
-        },
-        tex_coord: Vec2 { x: 0.0, y: 1.0 },
-    },
-    Vertex {
-        pos: Vec3 {
-            x: -0.5,
-            y: 0.5,
-            z: -0.5,
-        },
-        color: Vec3 {
-            x: 1.0,
-            y: 1.0,
-            z: 1.0,
-        },
-        tex_coord: Vec2 { x: 1.0, y: 1.0 },
-    },
-];
+// const VERTICES: [Vertex; 8] = [
+//     // First Quad
+//     Vertex {
+//         pos: Vec3 {
+//             x: -0.5,
+//             y: -0.5,
+//             z: 0.0,
+//         },
+//         color: Vec3 {
+//             x: 1.0,
+//             y: 0.0,
+//             z: 0.0,
+//         },
+//         tex_coord: Vec2 { x: 1.0, y: 0.0 },
+//     },
+//     Vertex {
+//         pos: Vec3 {
+//             x: 0.5,
+//             y: -0.5,
+//             z: 0.0,
+//         },
+//         color: Vec3 {
+//             x: 0.0,
+//             y: 1.0,
+//             z: 0.0,
+//         },
+//         tex_coord: Vec2 { x: 0.0, y: 0.0 },
+//     },
+//     Vertex {
+//         pos: Vec3 {
+//             x: 0.5,
+//             y: 0.5,
+//             z: 0.0,
+//         },
+//         color: Vec3 {
+//             x: 0.0,
+//             y: 0.0,
+//             z: 1.0,
+//         },
+//         tex_coord: Vec2 { x: 0.0, y: 1.0 },
+//     },
+//     Vertex {
+//         pos: Vec3 {
+//             x: -0.5,
+//             y: 0.5,
+//             z: 0.0,
+//         },
+//         color: Vec3 {
+//             x: 1.0,
+//             y: 1.0,
+//             z: 1.0,
+//         },
+//         tex_coord: Vec2 { x: 1.0, y: 1.0 },
+//     },
+//     // Second Quad
+//     Vertex {
+//         pos: Vec3 {
+//             x: -0.5,
+//             y: -0.5,
+//             z: -0.5,
+//         },
+//         color: Vec3 {
+//             x: 1.0,
+//             y: 0.0,
+//             z: 0.0,
+//         },
+//         tex_coord: Vec2 { x: 1.0, y: 0.0 },
+//     },
+//     Vertex {
+//         pos: Vec3 {
+//             x: 0.5,
+//             y: -0.5,
+//             z: -0.5,
+//         },
+//         color: Vec3 {
+//             x: 0.0,
+//             y: 1.0,
+//             z: 0.0,
+//         },
+//         tex_coord: Vec2 { x: 0.0, y: 0.0 },
+//     },
+//     Vertex {
+//         pos: Vec3 {
+//             x: 0.5,
+//             y: 0.5,
+//             z: -0.5,
+//         },
+//         color: Vec3 {
+//             x: 0.0,
+//             y: 0.0,
+//             z: 1.0,
+//         },
+//         tex_coord: Vec2 { x: 0.0, y: 1.0 },
+//     },
+//     Vertex {
+//         pos: Vec3 {
+//             x: -0.5,
+//             y: 0.5,
+//             z: -0.5,
+//         },
+//         color: Vec3 {
+//             x: 1.0,
+//             y: 1.0,
+//             z: 1.0,
+//         },
+//         tex_coord: Vec2 { x: 1.0, y: 1.0 },
+//     },
+// ];
 
-const INDICES: [u16; 12] = [
-    0, 1, 2, 2, 3, 0, // First Quad
-    4, 5, 6, 6, 7, 4, // Second Quad
-];
+// const INDICES: [u16; 12] = [
+//     0, 1, 2, 2, 3, 0, // First Quad
+//     4, 5, 6, 6, 7, 4, // Second Quad
+// ];
 
 struct UniformBufferObject {
     model: glam::Mat4,
@@ -268,6 +270,8 @@ pub struct App {
     descriptor_sets: Option<Vec<vk::DescriptorSet>>,
     debug_utils_loader: Option<DebugUtils>,
     debug_callback: Option<vk::DebugUtilsMessengerEXT>,
+    vertices: Vec<Vertex>,
+    indices: Vec<u32>,
     frame_index: usize,
     delta_time: f32,
     time: f32,
@@ -314,6 +318,8 @@ impl App {
             descriptor_sets: None,
             debug_utils_loader: None,
             debug_callback: None,
+            vertices: Vec::new(),
+            indices: Vec::new(),
             frame_index: 0,
             delta_time: 0.0,
             time: 0.0,
@@ -1022,7 +1028,7 @@ impl App {
             rasterizer_discard_enable: vk::FALSE,
             polygon_mode: PolygonMode::FILL,
             line_width: 1.0,
-            cull_mode: CullModeFlags::BACK,
+            cull_mode: CullModeFlags::FRONT,
             front_face: FrontFace::CLOCKWISE,
             depth_bias_enable: vk::FALSE,
             ..Default::default()
@@ -1571,7 +1577,9 @@ impl App {
                 .allocate_memory(&alloc_info, None)
                 .expect("Failed to allocate image memory!");
 
-            device.bind_image_memory(image, image_memory, 0).expect("Failed to bind image memory!");
+            device
+                .bind_image_memory(image, image_memory, 0)
+                .expect("Failed to bind image memory!");
 
             image_memory
         };
@@ -1733,9 +1741,51 @@ impl App {
         sampler
     }
 
+    fn load_model(&mut self) {
+        // TODO: Remove hardcoded model path.
+        let model_obj = tobj::load_obj(MODEL_PATH, &tobj::LoadOptions::default())
+            .expect("Failed to load model!");
+
+        let mut vertices = Vec::new();
+        let mut indices = Vec::new();
+
+        for model in model_obj.0 {
+            let mesh = model.mesh;
+
+            if mesh.texcoord_indices.is_empty() {
+                panic!("Model doesn't contain texcoords..");
+            }
+
+            let total_vertex_count = mesh.positions.len() / 3;
+            for i in 0..total_vertex_count {
+                let vertex = Vertex {
+                    pos: Vec3 {
+                        x: mesh.positions[i * 3],
+                        y: mesh.positions[i * 3 + 1],
+                        z: mesh.positions[i * 3 + 2],
+                    },
+                    color: Vec3 {
+                        x: 1.0,
+                        y: 1.0,
+                        z: 1.0,
+                    },
+                    tex_coord: Vec2 {
+                        x: mesh.texcoords[i * 2],
+                        y: -mesh.texcoords[i * 2 + 1],
+                    },
+                };
+                vertices.push(vertex);
+            }
+            indices = mesh.indices.clone(); // Only uses a single mesh in the obj at the moment.
+        }
+
+        self.vertices = vertices;
+        self.indices = indices;
+    }
+
     fn create_vertex_buffer(&mut self) {
         let staging_buffer_create_info = vk::BufferCreateInfo {
-            size: (std::mem::size_of::<Vertex>() * VERTICES.len()) as u64,
+            size: (std::mem::size_of::<Vertex>() * self.vertices.len()) as u64,
             usage: vk::BufferUsageFlags::TRANSFER_SRC,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
@@ -1759,7 +1809,7 @@ impl App {
                 )
                 .expect("Failed to map memory!") as *mut Vertex;
 
-            data_ptr.copy_from_nonoverlapping(VERTICES.as_ptr(), VERTICES.len());
+            data_ptr.copy_from_nonoverlapping(self.vertices.as_ptr(), self.vertices.len());
 
             self.device
                 .as_ref()
@@ -1768,7 +1818,7 @@ impl App {
         }
 
         let vertex_buffer_create_info = vk::BufferCreateInfo {
-            size: (std::mem::size_of::<Vertex>() * VERTICES.len()) as u64,
+            size: (std::mem::size_of::<Vertex>() * self.vertices.len()) as u64,
             usage: vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::VERTEX_BUFFER,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
@@ -1779,7 +1829,7 @@ impl App {
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         ));
 
-        let size = (std::mem::size_of::<Vertex>() * VERTICES.len()) as u64;
+        let size = (std::mem::size_of::<Vertex>() * self.vertices.len()) as u64;
         self.copy_buffer(&staging_buffer, self.vertex_buffer.as_ref().unwrap(), size)
             .expect("Error while copying buffer");
 
@@ -1788,7 +1838,7 @@ impl App {
 
     fn create_index_buffer(&mut self) {
         let staging_buffer_create_info = vk::BufferCreateInfo {
-            size: (std::mem::size_of::<u16>() * INDICES.len()) as u64,
+            size: (std::mem::size_of::<u32>() * self.indices.len()) as u64,
             usage: vk::BufferUsageFlags::TRANSFER_SRC,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
@@ -1810,9 +1860,9 @@ impl App {
                     staging_buffer_create_info.size,
                     vk::MemoryMapFlags::empty(),
                 )
-                .expect("Failed to map memory!") as *mut u16;
+                .expect("Failed to map memory!") as *mut u32;
 
-            data_ptr.copy_from_nonoverlapping(INDICES.as_ptr(), INDICES.len());
+            data_ptr.copy_from_nonoverlapping(self.indices.as_ptr(), self.indices.len());
 
             self.device
                 .as_ref()
@@ -1821,7 +1871,7 @@ impl App {
         }
 
         let index_buffer_create_info = vk::BufferCreateInfo {
-            size: (std::mem::size_of::<u16>() * INDICES.len()) as u64,
+            size: (std::mem::size_of::<u32>() * self.indices.len()) as u64,
             usage: vk::BufferUsageFlags::TRANSFER_DST | vk::BufferUsageFlags::INDEX_BUFFER,
             sharing_mode: vk::SharingMode::EXCLUSIVE,
             ..Default::default()
@@ -1832,7 +1882,7 @@ impl App {
             vk::MemoryPropertyFlags::DEVICE_LOCAL,
         ));
 
-        let size = (std::mem::size_of::<u16>() * INDICES.len()) as u64;
+        let size = (std::mem::size_of::<u32>() * self.indices.len()) as u64;
         self.copy_buffer(&staging_buffer, self.index_buffer.as_ref().unwrap(), size)
             .expect("Error while copying buffer");
 
@@ -2141,7 +2191,7 @@ impl App {
                 command_buffer,
                 self.index_buffer.as_ref().unwrap().buffer,
                 0,
-                vk::IndexType::UINT16,
+                vk::IndexType::UINT32,
             );
 
             device.cmd_bind_descriptor_sets(
@@ -2152,7 +2202,7 @@ impl App {
                 &[self.descriptor_sets.as_ref().unwrap()[self.frame_index]],
                 &[],
             );
-            device.cmd_draw_indexed(command_buffer, INDICES.len() as u32, 1, 0, 0, 0);
+            device.cmd_draw_indexed(command_buffer, self.indices.len() as u32, 1, 0, 0, 0);
 
             device.cmd_end_render_pass(command_buffer);
             device
@@ -2239,6 +2289,7 @@ impl App {
         self.texture_image_view =
             Some(self.create_texture_image_view(self.image_textures.as_ref().unwrap()[0].0));
         self.texture_sampler = Some(self.create_texture_sampler());
+        self.load_model();
         self.create_vertex_buffer();
         self.create_index_buffer();
         self.create_uniform_buffers();
@@ -2360,7 +2411,7 @@ impl App {
     pub fn update_uniform_buffer(&mut self, frame_index: usize) {
         self.time += self.delta_time;
 
-        let ubo = [UniformBufferObject {
+        let mut ubo = [UniformBufferObject {
             model: glam::Mat4::from_rotation_z(self.time * 90.0_f32.to_radians()),
             view: glam::Mat4::look_at_rh(
                 Vec3 {
@@ -2387,6 +2438,9 @@ impl App {
                 100.0,
             ),
         }];
+
+        // Reverse Y, GLAM is written for OpenGL, where the Y coordinate of the clip coordinates is inverted.
+        ubo[0].proj.col_mut(1).y *= -1.0;
 
         let size = std::mem::size_of::<UniformBufferObject>();
 
