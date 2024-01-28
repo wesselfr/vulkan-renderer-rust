@@ -2356,13 +2356,14 @@ impl App {
                 image_index as usize,
             );
 
+            let command_buffers = [self.command_buffers.as_ref().unwrap()[self.frame_index]];
+
             let submit_info = [vk::SubmitInfo {
                 wait_semaphore_count: 1,
                 p_wait_semaphores: wait_semaphores.as_ptr(),
                 p_wait_dst_stage_mask: [vk::PipelineStageFlags::COLOR_ATTACHMENT_OUTPUT].as_ptr(),
                 command_buffer_count: 1,
-                p_command_buffers: [self.command_buffers.as_ref().unwrap()[self.frame_index]]
-                    .as_ptr(),
+                p_command_buffers: command_buffers.as_ptr(),
                 signal_semaphore_count: 1,
                 p_signal_semaphores: signal_semaphores.as_ptr(),
                 ..Default::default()
