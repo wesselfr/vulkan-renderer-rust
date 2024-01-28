@@ -74,6 +74,7 @@ struct Buffer {
 struct Vertex {
     pos: Vec2,
     color: Vec3,
+    tex_coord: Vec2,
 }
 
 impl Vertex {
@@ -84,12 +85,12 @@ impl Vertex {
             input_rate: vk::VertexInputRate::VERTEX,
         }
     }
-    fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 2] {
+    fn get_attribute_descriptions() -> [vk::VertexInputAttributeDescription; 3] {
         [
             vk::VertexInputAttributeDescription {
                 binding: 0,
                 location: 0,
-                format: vk::Format::R32G32B32_SFLOAT,
+                format: vk::Format::R32G32_SFLOAT,
                 offset: offset_of!(Self, pos) as u32,
             },
             vk::VertexInputAttributeDescription {
@@ -97,6 +98,12 @@ impl Vertex {
                 location: 1,
                 format: vk::Format::R32G32B32_SFLOAT,
                 offset: offset_of!(Self, color) as u32,
+            },
+            vk::VertexInputAttributeDescription {
+                binding: 0,
+                location: 2,
+                format: vk::Format::R32G32_SFLOAT,
+                offset: offset_of!(Self, tex_coord) as u32,
             },
         ]
     }
@@ -110,6 +117,7 @@ const VERTICES: [Vertex; 4] = [
             y: 0.0,
             z: 0.0,
         },
+        tex_coord: Vec2 { x: 1.0, y: 0.0 },
     },
     Vertex {
         pos: Vec2 { x: 0.5, y: -0.5 },
@@ -118,6 +126,7 @@ const VERTICES: [Vertex; 4] = [
             y: 1.0,
             z: 0.0,
         },
+        tex_coord: Vec2 { x: 0.0, y: 0.0 },
     },
     Vertex {
         pos: Vec2 { x: 0.5, y: 0.5 },
@@ -126,6 +135,7 @@ const VERTICES: [Vertex; 4] = [
             y: 0.0,
             z: 1.0,
         },
+        tex_coord: Vec2 { x: 0.0, y: 1.0 },
     },
     Vertex {
         pos: Vec2 { x: -0.5, y: 0.5 },
@@ -134,6 +144,7 @@ const VERTICES: [Vertex; 4] = [
             y: 1.0,
             z: 1.0,
         },
+        tex_coord: Vec2 { x: 1.0, y: 1.0 },
     },
 ];
 
@@ -990,7 +1001,15 @@ impl App {
             ..Default::default()
         };
 
-        let bindings = [ubo_layout_binding];
+        let sampler_layout_binding = vk::DescriptorSetLayoutBinding {
+            binding: 1,
+            descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+            descriptor_count: 1,
+            stage_flags: vk::ShaderStageFlags::FRAGMENT,
+            ..Default::default()
+        };
+
+        let bindings = [ubo_layout_binding, sampler_layout_binding];
 
         let layout_info = vk::DescriptorSetLayoutCreateInfo {
             binding_count: bindings.len() as u32,
@@ -1483,6 +1502,12 @@ impl App {
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             );
             self.copy_buffer_to_image(&staging_buffer, image, width, height);
+            self.transition_image_layout(
+                image,
+                vk::Format::R8G8B8A8_SRGB,
+                vk::ImageLayout::TRANSFER_DST_OPTIMAL,
+                vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+            );
 
             self.destroy_buffer(&staging_buffer);
 
@@ -1677,13 +1702,19 @@ impl App {
     }
 
     fn create_descriptor_pool(&mut self) {
-        let pool_size = [vk::DescriptorPoolSize {
-            descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
-            ..Default::default()
-        }];
+        let pool_size = [
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::UNIFORM_BUFFER,
+                descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
+            },
+            vk::DescriptorPoolSize {
+                ty: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                descriptor_count: MAX_FRAMES_IN_FLIGHT as u32,
+            },
+        ];
 
         let pool_info = vk::DescriptorPoolCreateInfo {
-            pool_size_count: 1,
+            pool_size_count: pool_size.len() as u32,
             p_pool_sizes: pool_size.as_ptr(),
             max_sets: MAX_FRAMES_IN_FLIGHT as u32,
             ..Default::default()
@@ -1730,21 +1761,39 @@ impl App {
                 range: std::mem::size_of::<UniformBufferObject>() as u64,
             };
 
-            let descriptor_write = vk::WriteDescriptorSet {
-                dst_set: self.descriptor_sets.as_ref().unwrap()[i],
-                dst_binding: 0,
-                dst_array_element: 0,
-                descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
-                descriptor_count: 1,
-                p_buffer_info: &buffer_info,
+            let image_info = vk::DescriptorImageInfo {
+                image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
+                image_view: self.texture_image_view.unwrap(),
+                sampler: self.texture_sampler.unwrap(),
                 ..Default::default()
             };
+
+            let descriptor_writes = [
+                vk::WriteDescriptorSet {
+                    dst_set: self.descriptor_sets.as_ref().unwrap()[i],
+                    dst_binding: 0,
+                    dst_array_element: 0,
+                    descriptor_type: vk::DescriptorType::UNIFORM_BUFFER,
+                    descriptor_count: 1,
+                    p_buffer_info: &buffer_info,
+                    ..Default::default()
+                },
+                vk::WriteDescriptorSet {
+                    dst_set: self.descriptor_sets.as_ref().unwrap()[i],
+                    dst_binding: 1,
+                    dst_array_element: 0,
+                    descriptor_type: vk::DescriptorType::COMBINED_IMAGE_SAMPLER,
+                    descriptor_count: 1,
+                    p_image_info: &image_info,
+                    ..Default::default()
+                },
+            ];
 
             unsafe {
                 self.device
                     .as_ref()
                     .unwrap()
-                    .update_descriptor_sets(&[descriptor_write], &[])
+                    .update_descriptor_sets(&descriptor_writes, &[])
             }
         }
     }
