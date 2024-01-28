@@ -176,6 +176,7 @@ pub struct App {
     uniform_buffers_mapped: Option<Vec<vk::DeviceMemory>>,
     image_textures: Option<Vec<(vk::Image, vk::DeviceMemory)>>,
     texture_image_view: Option<vk::ImageView>,
+    texture_sampler: Option<vk::Sampler>,
     descriptor_pool: Option<vk::DescriptorPool>,
     descriptor_sets: Option<Vec<vk::DescriptorSet>>,
     debug_utils_loader: Option<DebugUtils>,
@@ -218,6 +219,7 @@ impl App {
             uniform_buffers_mapped: None,
             image_textures: None,
             texture_image_view: None,
+            texture_sampler: None,
             descriptor_pool: None,
             descriptor_sets: None,
             debug_utils_loader: None,
@@ -1494,6 +1496,36 @@ impl App {
         self.create_image_view(image, vk::Format::R8G8B8A8_SRGB)
     }
 
+    fn create_texture_sampler(&self) -> vk::Sampler {
+        let sampler_info = vk::SamplerCreateInfo {
+            mag_filter: vk::Filter::LINEAR,
+            min_filter: vk::Filter::LINEAR,
+            address_mode_u: vk::SamplerAddressMode::REPEAT,
+            address_mode_v: vk::SamplerAddressMode::REPEAT,
+            address_mode_w: vk::SamplerAddressMode::REPEAT,
+            anisotropy_enable: vk::TRUE,
+            max_anisotropy: 16.0, // TODO: Use hardware limits instead of hardcoded value.
+            border_color: vk::BorderColor::INT_OPAQUE_BLACK,
+            unnormalized_coordinates: vk::FALSE,
+            compare_enable: vk::FALSE,
+            compare_op: vk::CompareOp::ALWAYS,
+            mipmap_mode: vk::SamplerMipmapMode::LINEAR,
+            mip_lod_bias: 0.0,
+            min_lod: 0.0,
+            max_lod: 0.0,
+            ..Default::default()
+        };
+
+        let sampler = unsafe {
+            self.device
+                .as_ref()
+                .unwrap()
+                .create_sampler(&sampler_info, None)
+                .expect("Failed to create texture sampler!")
+        };
+        sampler
+    }
+
     fn create_vertex_buffer(&mut self) {
         let staging_buffer_create_info = vk::BufferCreateInfo {
             size: (std::mem::size_of::<Vertex>() * VERTICES.len()) as u64,
@@ -1951,6 +1983,7 @@ impl App {
         self.image_textures = Some(vec![self.create_texture_image(Path::new(TEXTURE_PATH))]);
         self.texture_image_view =
             Some(self.create_texture_image_view(self.image_textures.as_ref().unwrap()[0].0));
+        self.texture_sampler = Some(self.create_texture_sampler());
         self.create_vertex_buffer();
         self.create_index_buffer();
         self.create_uniform_buffers();
@@ -2137,6 +2170,8 @@ impl App {
 
             let device = self.device.as_ref().unwrap();
 
+            // TODO: Replace with `if let Some()`
+            device.destroy_sampler(self.texture_sampler.unwrap(), None);
             device.destroy_image_view(self.texture_image_view.unwrap(), None);
 
             for i in 0..MAX_FRAMES_IN_FLIGHT {
