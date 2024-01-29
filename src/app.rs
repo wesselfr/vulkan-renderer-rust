@@ -3,7 +3,7 @@ use std::{
     ffi::{CStr, CString},
     mem::size_of,
     os::raw::c_char,
-    path::{self, Path},
+    path::Path,
     ptr,
     time::Instant,
 };
@@ -18,8 +18,7 @@ use ash::{
 };
 pub use ash::{Device, Instance};
 use glam::{Vec2, Vec3};
-use image::{EncodableLayout, GenericImageView};
-use tobj::*;
+use image::GenericImageView;
 use winit::{
     dpi::LogicalSize,
     event::{Event, WindowEvent},
@@ -40,8 +39,8 @@ use crate::utils::{self, *};
 const WIDTH: i32 = 800;
 const HEIGHT: i32 = 600;
 
-const MODEL_PATH: &'static str = "assets/viking_room/viking_room.obj";
-const TEXTURE_PATH: &'static str = "assets/viking_room/viking_room.png";
+const MODEL_PATH: &str = "assets/viking_room/viking_room.obj";
+const TEXTURE_PATH: &str = "assets/viking_room/viking_room.png";
 
 const MAX_FRAMES_IN_FLIGHT: usize = 2;
 
@@ -225,6 +224,8 @@ impl Vertex {
 //     4, 5, 6, 6, 7, 4, // Second Quad
 // ];
 
+// Model / View used on GPU
+#[allow(dead_code)]
 struct UniformBufferObject {
     model: glam::Mat4,
     view: glam::Mat4,
@@ -911,7 +912,6 @@ impl App {
         let depth_attachment_ref = vk::AttachmentReference {
             attachment: 1,
             layout: vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
-            ..Default::default()
         };
 
         let subpass = vk::SubpassDescription {
@@ -1407,7 +1407,6 @@ impl App {
     fn transition_image_layout(
         &self,
         image: vk::Image,
-        format: vk::Format,
         old_layout: vk::ImageLayout,
         new_layout: vk::ImageLayout,
     ) {
@@ -1425,7 +1424,6 @@ impl App {
                 level_count: 1,
                 base_array_layer: 0,
                 layer_count: 1,
-                ..Default::default()
             },
             ..Default::default()
         };
@@ -1496,7 +1494,6 @@ impl App {
                 mip_level: 0,
                 base_array_layer: 0,
                 layer_count: 1,
-                ..Default::default()
             },
 
             image_offset: vk::Offset3D { x: 0, y: 0, z: 0 },
@@ -1505,7 +1502,6 @@ impl App {
                 height,
                 depth: 1,
             },
-            ..Default::default()
         };
 
         unsafe {
@@ -1566,10 +1562,8 @@ impl App {
 
             let alloc_info = vk::MemoryAllocateInfo {
                 allocation_size: memory_requirements.size,
-                memory_type_index: self.find_memory_type(
-                    memory_requirements.memory_type_bits,
-                    vk::MemoryPropertyFlags::DEVICE_LOCAL, // TODO: Could change depending on image use.
-                ),
+                memory_type_index: self
+                    .find_memory_type(memory_requirements.memory_type_bits, properties),
                 ..Default::default()
             };
 
@@ -1594,9 +1588,8 @@ impl App {
             panic!("Missing file: {:?}", path);
         }
 
-        if let Ok(mut image) = image::open(path) {
+        if let Ok(image) = image::open(path) {
             let (width, height) = image.dimensions();
-            let color_type = image.color();
 
             println!("Width: {}, Height: {}", width, height);
 
@@ -1604,7 +1597,7 @@ impl App {
             let size = (std::mem::size_of::<u8>() as u32 * width * height * 4) as vk::DeviceSize;
 
             // Convert texture format if necessary.
-            let mut image = match &image {
+            let image = match &image {
                 image::DynamicImage::ImageLuma8(_) | image::DynamicImage::ImageRgb8(_) => {
                     image.to_rgba8().into()
                 }
@@ -1660,14 +1653,12 @@ impl App {
 
             self.transition_image_layout(
                 image,
-                vk::Format::R8G8B8A8_SRGB,
                 vk::ImageLayout::UNDEFINED,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
             );
             self.copy_buffer_to_image(&staging_buffer, image, width, height);
             self.transition_image_layout(
                 image,
-                vk::Format::R8G8B8A8_SRGB,
                 vk::ImageLayout::TRANSFER_DST_OPTIMAL,
                 vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
             );
@@ -1695,7 +1686,6 @@ impl App {
 
         self.transition_image_layout(
             image,
-            depth_format,
             vk::ImageLayout::UNDEFINED,
             vk::ImageLayout::DEPTH_STENCIL_ATTACHMENT_OPTIMAL,
         );
@@ -1997,7 +1987,6 @@ impl App {
                 image_layout: vk::ImageLayout::SHADER_READ_ONLY_OPTIMAL,
                 image_view: self.texture_image_view.unwrap(),
                 sampler: self.texture_sampler.unwrap(),
-                ..Default::default()
             };
 
             let descriptor_writes = [
@@ -2418,7 +2407,7 @@ impl App {
                 Vec3 {
                     x: 2.0,
                     y: 2.0,
-                    z: 2.0,
+                    z: 2.0 + self.time.sin(),
                 },
                 Vec3 {
                     x: 0.0,
